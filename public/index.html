@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Flip Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .game-container {
+            text-align: center;
+            max-width: 800px;
+            width: 100%;
+            padding: 20px;
+        }
+
+        .title {
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .lobby {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .sit-btn, .start-btn {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .sit-btn:hover, .start-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .sit-btn:disabled, .start-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .players-info {
+            margin: 20px 0;
+            font-size: 1.1rem;
+        }
+
+        .player-list {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .player {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 15px;
+            border: 2px solid transparent;
+        }
+
+        .player.active {
+            border-color: #ffd700;
+            background: rgba(255, 215, 0, 0.2);
+        }
+
+        .game-area {
+            display: none;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .game-info {
+            margin-bottom: 30px;
+            font-size: 1.2rem;
+        }
+
+        .cards-container {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .card {
+            aspect-ratio: 1;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            perspective: 1000px;
+            position: relative;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .card-front {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            color: white;
+        }
+
+        .card-back {
+            background: linear-gradient(45deg, #43e97b, #38f9d7);
+            color: white;
+            transform: rotateY(180deg);
+        }
+
+        .card.flipped {
+            pointer-events: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        @media (max-width: 600px) {
+            .cards-container {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+            }
+            
+            .title {
+                font-size: 2rem;
+            }
+            
+            .lobby, .game-area {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    
+    <div class="game-container">
+        <h1 class="title">🎮 Card Flip Game</h1>
+        
+        <div class="lobby" id="lobby">
+            <h2>Game Lobby</h2>
+            <div class="players-info">
+                <div id="playerCount">Players: 0/2</div>
+                <div class="player-list" id="playerList"></div>
+            </div>
+            <input id="room-id" type="text" placeholder="Enter Room ID" />
+            <input id="player-id" type="text" placeholder="Enter Player ID" />
+            <button class="sit-btn" id="sitBtn" onclick="sitDown()">Sit Down</button>
+            <button class="start-btn" id="startBtn" onclick="startGame()" disabled>Start Game</button>
+        </div>
+
+        <div class="game-area" id="gameArea">
+            <div class="game-info">
+                <div class="player-list" id="gamePlayerList"></div>
+                <div class="status" id="gameStatus">Click a card to flip it!</div>
+            </div>
+            
+            <div class="cards-container" id="cardsContainer"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/client.js"></script>
+
+    <!-- Socket.io client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    
+    <script>
+        // Configuration - Change this to your server URL
+        const SERVER_URL = window.location.origin; // For production
+        // const SERVER_URL = 'http://localhost:3000'; // For local development
+        
+        // Game state
+        let gameState = {
+            players: [],
+            currentPlayer: 0,
+            gameStarted: false,
+            flippedCards: [],
+            isComplete: false
+        };
+
+        // Generate unique player ID
+        const playerId = 'Player_' + Math.random().toString(36).substr(2, 9);
+        
+        // Room ID from URL or generate new one
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room') || 'room_' + Math.random().toString(36).substr(2, 9);
+        
+        // Update URL with room ID if not present
+        if (!urlParams.get('room')) {
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?room=' + roomId;
+            window.history.pushState({path: newUrl}, '', newUrl);
+        }
+
+        // Socket connection
+        const socket = io(SERVER_URL);
+        let isConnected = false;
+        let isRoomLeader = false;
+
+        // Socket event handlers
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            isConnected = true;
+            // Join the room
+            socket.emit('join-room', { roomId, playerId });
+            updateConnectionStatus('Connected');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            isConnected = false;
+            updateConnectionStatus('Disconnected - Trying to reconnect...');
+        });
+
+        socket.on('room-update', (newGameState) => {
+            gameState = newGameState;
+            isRoomLeader = gameState.players.length > 0 && gameState.players[0].id === playerId;
+            updateLobby();
+        });
+
+        socket.on('game-started', (newGameState) => {
+            gameState = newGameState;
+            startGameUI();
+        });
+
+        socket.on('card-flipped', (data) => {
+            const { cardNumber, gameState: newGameState } = data;
+            gameState = newGameState;
+            
+            // Update the card visually
+            const cards = document.querySelectorAll('.card');
+            const card = cards[cardNumber - 1];
+            card.classList.add('flipped');
+            
+            updateGameDisplay();
+        });
+
+        socket.on('game-complete', (newGameState) => {
+            gameState = newGameState;
+            updateGameDisplay();
+            document.getElementById('gameStatus').textContent = '🎉 All cards flipped! Game complete!';
+        });
+
+        socket.on('room-full', () => {
+            alert('Room is full! Try a different room.');
+        });
+
+        // UI Functions
+        function updateConnectionStatus(status) {
+            // You can add a connection status indicator here if needed
+            console.log('Connection status:', status);
+        }
+
+        function sitDown() {
+            if (!isConnected) {
+                alert('Not connected to server. Please wait...');
+                return;
+            }
+            
+            // The server handles sitting down when joining the room
+            document.getElementById('sitBtn').disabled = true;
+            document.getElementById('sitBtn').textContent = 'Seated';
+        }
+
+        function updateLobby() {
+            const playerCount = document.getElementById('playerCount');
+            const playerList = document.getElementById('playerList');
+            const startBtn = document.getElementById('startBtn');
+            const sitBtn = document.getElementById('sitBtn');
+            
+            playerCount.textContent = `Players: ${gameState.players.length}/2`;
+            
+            // Update player list
+            playerList.innerHTML = '';
+            gameState.players.forEach((player, index) => {
+                const playerDiv = document.createElement('div');
+                playerDiv.className = 'player';
+                playerDiv.textContent = player.name;
+                if (player.id === playerId) {
+                    playerDiv.textContent += ' (You)';
+                    sitBtn.disabled = true;
+                    sitBtn.textContent = 'Seated';
+                }
+                playerList.appendChild(playerDiv);
+            });
+            
+            // Enable start button for room leader when 2 players
+            startBtn.disabled = !(gameState.players.length === 2 && isRoomLeader);
+            
+            // Add room sharing info
+            if (gameState.players.length === 1) {
+                const shareDiv = document.createElement('div');
+                shareDiv.style.marginTop = '20px';
+                shareDiv.style.fontSize = '0.9rem';
+                shareDiv.innerHTML = `
+                    <p>Share this link with a friend to play together:</p>
+                    <input type="text" value="${window.location.href}" readonly 
+                           style="width: 100%; padding: 5px; margin-top: 5px; border-radius: 5px; border: 1px solid #ccc;"
+                           onclick="this.select()">
+                `;
+                playerList.appendChild(shareDiv);
+            }
+        }
+
+        function startGame() {
+            if (!isConnected || !isRoomLeader) return;
+            socket.emit('start-game');
+        }
+
+        function startGameUI() {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'block';
+            
+            createCards();
+            updateGameDisplay();
+        }
+
+        function createCards() {
+            const container = document.getElementById('cardsContainer');
+            container.innerHTML = '';
+            
+            for (let i = 1; i <= 10; i++) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                if (!gameState.flippedCards.includes(i)) {
+                    card.onclick = () => flipCard(i);
+                }
+                
+                card.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-front">?</div>
+                        <div class="card-back">${i}</div>
+                    </div>
+                `;
+                
+                // Show already flipped cards
+                if (gameState.flippedCards.includes(i)) {
+                    card.classList.add('flipped');
+                }
+                
+                container.appendChild(card);
+            }
+        }
+
+        function flipCard(cardNumber) {
+            if (!isConnected || !gameState.gameStarted || gameState.flippedCards.includes(cardNumber)) {
+                return;
+            }
+            
+            // Check if it's current player's turn
+            const currentPlayerData = gameState.players[gameState.currentPlayer];
+            if (currentPlayerData.id !== playerId) {
+                alert("It's not your turn!");
+                return;
+            }
+            
+            socket.emit('flip-card', cardNumber);
+        }
+
+        function updateGameDisplay() {
+            const gamePlayerList = document.getElementById('gamePlayerList');
+            const gameStatus = document.getElementById('gameStatus');
+            
+            // Update player list with current turn indicator
+            gamePlayerList.innerHTML = '';
+            gameState.players.forEach((player, index) => {
+                const playerDiv = document.createElement('div');
+                playerDiv.className = 'player';
+                if (player.isCurrentPlayer) {
+                    playerDiv.classList.add('active');
+                }
+                playerDiv.textContent = player.name;
+                if (player.id === playerId) {
+                    playerDiv.textContent += ' (You)';
+                }
+                gamePlayerList.appendChild(playerDiv);
+            });
+            
+            // Update game status
+            if (!gameState.isComplete) {
+                const currentPlayerData = gameState.players[gameState.currentPlayer];
+                const isMyTurn = currentPlayerData.id === playerId;
+                const turnText = isMyTurn ? 'Your turn' : `${currentPlayerData.name}'s turn`;
+                gameStatus.textContent = `${turnText} - Click a card to flip it!`;
+            }
+        }
+
+        // Auto-sit when page loads if there's space
+        socket.on('room-update', (newGameState) => {
+            gameState = newGameState;
+            isRoomLeader = gameState.players.length > 0 && gameState.players[0].id === playerId;
+            
+            // Auto-sit if not already seated and there's space
+            const isSeated = gameState.players.some(p => p.id === playerId);
+            if (!isSeated && gameState.players.length < 2) {
+                // Player is automatically seated when joining room
+            }
+            
+            updateLobby();
+        });
+    </script>
+</body>
+</html>
