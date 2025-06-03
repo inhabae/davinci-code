@@ -1,0 +1,18 @@
+.card {
+    width: 100px;
+    height: 150px;
+    border: 1px solid black;
+    display: inline-block;
+    margin: 5px;
+    cursor: pointer;
+    text-align: center;
+    line-height: 150px;
+    background-color: #ccc;
+}
+.card.flipped {
+    background-color: #4caf50;
+    color: white;
+}
+#lobby, #game-board {
+    margin: 20px;
+}

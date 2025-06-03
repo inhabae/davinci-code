@@ -191,21 +191,35 @@
         }
     </style>
 </head>
+<link rel="stylesheet" href="/styles.css">
 <body>
     
     <div class="game-container">
         <h1 class="title">🎮 Card Flip Game</h1>
         
-        <div class="lobby" id="lobby">
-            <h2>Game Lobby</h2>
-            <div class="players-info">
-                <div id="playerCount">Players: 0/2</div>
-                <div class="player-list" id="playerList"></div>
+        <div id="lobby">
+            <div id="player-count">Players: 0/2</div>
+            <div>
+                <input id="room-id" type="text" placeholder="Enter Room ID" />
+                <input id="player-id" type="text" placeholder="Enter Player ID" />
             </div>
-            <input id="room-id" type="text" placeholder="Enter Room ID" />
-            <input id="player-id" type="text" placeholder="Enter Player ID" />
-            <button class="sit-btn" id="sitBtn" onclick="sitDown()">Sit Down</button>
-            <button class="start-btn" id="startBtn" onclick="startGame()" disabled>Start Game</button>
+            <button id="join-button">Sit Down</button>
+            <button id="start-button" disabled>Start Game</button>
+        </div>
+        <div id="game-board" style="display: none;">
+            <h2>Click a card to flip it!</h2>
+            <div id="player-1">Player 1</div>
+            <div id="player-2">Player 2</div>
+            <div id="card-1" class="card">Card 1</div>
+            <div id="card-2" class="card">Card 2</div>
+            <div id="card-3" class="card">Card 3</div>
+            <div id="card-4" class="card">Card 4</div>
+            <div id="card-5" class="card">Card 5</div>
+            <div id="card-6" class="card">Card 6</div>
+            <div id="card-7" class="card">Card 7</div>
+            <div id="card-8" class="card">Card 8</div>
+            <div id="card-9" class="card">Card 9</div>
+            <div id="card-10" class="card">Card 10</div>
         </div>
 
         <div class="game-area" id="gameArea">
@@ -217,9 +231,6 @@
             <div class="cards-container" id="cardsContainer"></div>
         </div>
     </div>
-
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/client.js"></script>
 
     <!-- Socket.io client -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
@@ -458,5 +469,8 @@
             updateLobby();
         });
     </script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/client.js"></script>
+</body>
 </body>
 </html>
