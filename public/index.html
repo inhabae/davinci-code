@@ -1,1107 +1,1247 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Da Vinci Code Game</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        body {
-            font-family: 'Arial', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+      body {
+        font-family: "Arial", sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
 
+      .game-container {
+        width: 100%;
+        max-width: 1200px;
+        height: 800px;
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        position: relative;
+      }
+
+      /* Lobby Styles */
+      .lobby-screen {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        padding: 40px;
+      }
+
+      .lobby-title {
+        font-size: 3rem;
+        color: #333;
+        margin-bottom: 40px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .player-list {
+        display: flex;
+        gap: 30px;
+        margin-bottom: 40px;
+      }
+
+      .player-slot {
+        background: #f0f0f0;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        min-width: 200px;
+        border: 2px solid #ddd;
+      }
+
+      .player-slot.ready {
+        background: #d4edda;
+        border-color: #28a745;
+      }
+
+      .name-input {
+        padding: 12px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        font-size: 16px;
+        margin-bottom: 20px;
+        width: 250px;
+      }
+
+      .btn {
+        background: #667eea;
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 8px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.3s;
+        margin: 5px;
+      }
+
+      .btn:hover {
+        background: #5a6fd8;
+        transform: translateY(-2px);
+      }
+
+      .btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn.start-btn {
+        background: #28a745;
+        font-size: 18px;
+        padding: 18px 40px;
+      }
+
+      .btn.start-btn:hover {
+        background: #218838;
+      }
+
+      /* Game Table Styles */
+      .game-table {
+        display: none;
+        background: #2d5a27;
+        height: 100%;
+        position: relative;
+        background-image:
+          radial-gradient(
+            circle at 20% 80%,
+            rgba(120, 200, 120, 0.3) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            circle at 80% 20%,
+            rgba(120, 200, 120, 0.3) 0%,
+            transparent 50%
+          );
+      }
+
+      .game-info {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 15px;
+        border-radius: 10px;
+        z-index: 100;
+      }
+
+      .current-turn {
+        font-weight: bold;
+        color: #28a745;
+        margin-bottom: 5px;
+      }
+
+      .turn-phase {
+        color: #666;
+        font-style: italic;
+      }
+
+      /* Community Pile */
+      .community-pile {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        max-width: 400px;
+        justify-content: center;
+        z-index: 10;
+      }
+
+      /* Player Hands */
+      .player-hand {
+        position: absolute;
+        display: flex;
+        gap: 8px;
+        z-index: 20;
+      }
+
+      .player-hand.player-0 {
+        bottom: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .player-hand.player-1 {
+        top: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .player-label {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        white-space: nowrap;
+      }
+
+      .player-hand.player-0 .player-label {
+        bottom: -35px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .player-hand.player-1 .player-label {
+        top: -35px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      /* Card Styles */
+      .card {
+        width: 60px;
+        height: 90px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 16px;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.3s;
+        border: 2px solid #333;
+      }
+
+      .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      }
+
+      .card.white {
+        background: white;
+        color: #333;
+      }
+
+      .card.black {
+        background: #333;
+        color: white;
+      }
+
+      .card.hidden {
+        position: relative;
+      }
+
+      .card.hidden::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(128, 128, 128, 0.6);
+        border-radius: 6px;
+      }
+
+      .card.selected {
+        border-color: #ffd700;
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.7);
+        transform: translateY(-10px);
+      }
+
+      .card.revealed {
+        border-color: #dc3545;
+        box-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+      }
+
+      .community-card {
+        width: 50px;
+        height: 75px;
+        font-size: 12px;
+      }
+
+      /* Control Panel */
+      .control-panel {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 20px;
+        border-radius: 15px;
+        min-width: 250px;
+        z-index: 100;
+      }
+
+      .control-section {
+        margin-bottom: 15px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .control-section:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+      }
+
+      .control-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #333;
+      }
+
+      .guess-input {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 10px 0;
+      }
+
+      .guess-input input {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+
+      .selected-count {
+        color: #666;
+        font-size: 14px;
+        margin: 5px 0;
+      }
+
+      /* Game Over Overlay */
+      .game-over-overlay {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .game-over-content {
+        background: white;
+        padding: 40px;
+        border-radius: 15px;
+        text-align: center;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      }
+
+      .winner-text {
+        font-size: 2rem;
+        color: #28a745;
+        margin-bottom: 20px;
+      }
+
+      .message {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.95);
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        z-index: 200;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
         .game-container {
-            width: 100%;
-            max-width: 1200px;
-            height: 800px;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            overflow: hidden;
-            position: relative;
-        }
-
-        /* Lobby Styles */
-        .lobby-screen {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100%;
-            padding: 40px;
+          height: 100vh;
+          max-width: 100%;
+          border-radius: 0;
         }
 
         .lobby-title {
-            font-size: 3rem;
-            color: #333;
-            margin-bottom: 40px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+          font-size: 2rem;
         }
 
         .player-list {
-            display: flex;
-            gap: 30px;
-            margin-bottom: 40px;
+          flex-direction: column;
         }
 
-        .player-slot {
-            background: #f0f0f0;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            min-width: 200px;
-            border: 2px solid #ddd;
-        }
-
-        .player-slot.ready {
-            background: #d4edda;
-            border-color: #28a745;
-        }
-
-        .name-input {
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 16px;
-            margin-bottom: 20px;
-            width: 250px;
-        }
-
-        .btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin: 5px;
-        }
-
-        .btn:hover {
-            background: #5a6fd8;
-            transform: translateY(-2px);
-        }
-
-        .btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn.start-btn {
-            background: #28a745;
-            font-size: 18px;
-            padding: 18px 40px;
-        }
-
-        .btn.start-btn:hover {
-            background: #218838;
-        }
-
-        /* Game Table Styles */
-        .game-table {
-            display: none;
-            background: #2d5a27;
-            height: 100%;
-            position: relative;
-            background-image: 
-                radial-gradient(circle at 20% 80%, rgba(120, 200, 120, 0.3) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(120, 200, 120, 0.3) 0%, transparent 50%);
-        }
-
-        .game-info {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(255,255,255,0.9);
-            padding: 15px;
-            border-radius: 10px;
-            z-index: 100;
-        }
-
-        .current-turn {
-            font-weight: bold;
-            color: #28a745;
-            margin-bottom: 5px;
-        }
-
-        .turn-phase {
-            color: #666;
-            font-style: italic;
-        }
-
-        /* Community Pile */
-        .community-pile {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-            max-width: 400px;
-            justify-content: center;
-            z-index: 10;
-        }
-
-        /* Player Hands */
-        .player-hand {
-            position: absolute;
-            display: flex;
-            gap: 8px;
-            z-index: 20;
-        }
-
-        .player-hand.player-0 {
-            bottom: 50px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        .player-hand.player-1 {
-            top: 50px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        .player-label {
-            position: absolute;
-            background: rgba(255,255,255,0.9);
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            white-space: nowrap;
-        }
-
-        .player-hand.player-0 .player-label {
-            bottom: -35px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        .player-hand.player-1 .player-label {
-            top: -35px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        /* Card Styles */
         .card {
-            width: 60px;
-            height: 90px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 16px;
-            cursor: pointer;
-            position: relative;
-            transition: all 0.3s;
-            border: 2px solid #333;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-        }
-
-        .card.white {
-            background: white;
-            color: #333;
-        }
-
-        .card.black {
-            background: #333;
-            color: white;
-        }
-
-        .card.hidden {
-            position: relative;
-        }
-
-        .card.hidden::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(128, 128, 128, 0.6);
-            border-radius: 6px;
-        }
-
-        .card.selected {
-            border-color: #ffd700;
-            box-shadow: 0 0 15px rgba(255, 215, 0, 0.7);
-            transform: translateY(-10px);
-        }
-
-        .card.revealed {
-            border-color: #dc3545;
-            box-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+          width: 45px;
+          height: 68px;
+          font-size: 12px;
         }
 
         .community-card {
-            width: 50px;
-            height: 75px;
-            font-size: 12px;
+          width: 35px;
+          height: 53px;
+          font-size: 10px;
         }
 
-        /* Control Panel */
         .control-panel {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(255,255,255,0.95);
-            padding: 20px;
-            border-radius: 15px;
-            min-width: 250px;
-            z-index: 100;
+          bottom: 10px;
+          right: 10px;
+          left: 10px;
+          min-width: auto;
         }
-
-        .control-section {
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
-        }
-
-        .control-section:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
-        }
-
-        .control-title {
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #333;
-        }
-
-        .guess-input {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            margin: 10px 0;
-        }
-
-        .guess-input input {
-            flex: 1;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        .selected-count {
-            color: #666;
-            font-size: 14px;
-            margin: 5px 0;
-        }
-
-        /* Game Over Overlay */
-        .game-over-overlay {
-            display: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.7);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .game-over-content {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            text-align: center;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        }
-
-        .winner-text {
-            font-size: 2rem;
-            color: #28a745;
-            margin-bottom: 20px;
-        }
-
-        .message {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255,255,255,0.95);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            z-index: 200;
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .game-container {
-                height: 100vh;
-                max-width: 100%;
-                border-radius: 0;
-            }
-
-            .lobby-title {
-                font-size: 2rem;
-            }
-
-            .player-list {
-                flex-direction: column;
-            }
-
-            .card {
-                width: 45px;
-                height: 68px;
-                font-size: 12px;
-            }
-
-            .community-card {
-                width: 35px;
-                height: 53px;
-                font-size: 10px;
-            }
-
-            .control-panel {
-                bottom: 10px;
-                right: 10px;
-                left: 10px;
-                min-width: auto;
-            }
-        }
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="game-container">
-        <!-- Lobby Screen -->
-        <div id="lobbyScreen" class="lobby-screen">
-            <h1 class="lobby-title">Da Vinci Code</h1>
-            
-            <div class="player-list">
-                <div id="player0Slot" class="player-slot">
-                    <div class="player-name">Player 1</div>
-                    <div class="ready-status">Waiting...</div>
-                </div>
-                <div id="player1Slot" class="player-slot">
-                    <div class="player-name">Player 2</div>
-                    <div class="ready-status">Waiting...</div>
-                </div>
-            </div>
+      <!-- Lobby Screen -->
+      <div id="lobbyScreen" class="lobby-screen">
+        <h1 class="lobby-title">Da Vinci Code</h1>
 
-            <div id="joinControls">
-                <input type="text" id="playerNameInput" class="name-input" placeholder="Enter your name" maxlength="20">
-                <br>
-                <button id="sitDownBtn" class="btn">Sit Down</button>
-                <button id="startGameBtn" class="btn start-btn" disabled>Start Game</button>
-            </div>
-
-            <div id="gameInProgress" class="hidden">
-                <h2>Game in progress...</h2>
-                <p>Please wait for the current game to finish.</p>
-            </div>
+        <div class="player-list">
+          <div id="player0Slot" class="player-slot">
+            <div class="player-name">Player 1</div>
+            <div class="ready-status">Waiting...</div>
+          </div>
+          <div id="player1Slot" class="player-slot">
+            <div class="player-name">Player 2</div>
+            <div class="ready-status">Waiting...</div>
+          </div>
         </div>
 
-        <!-- Game Table -->
-        <div id="gameTable" class="game-table">
-            <div class="game-info">
-                <div id="currentTurn" class="current-turn"></div>
-                <div id="turnPhase" class="turn-phase"></div>
-            </div>
-
-            <!-- Community Pile -->
-            <div id="communityPile" class="community-pile"></div>
-
-            <!-- Player Hands -->
-            <div id="playerHand0" class="player-hand player-0">
-                <div class="player-label"></div>
-            </div>
-            <div id="playerHand1" class="player-hand player-1">
-                <div class="player-label"></div>
-            </div>
-
-            <!-- Control Panel -->
-            <div id="controlPanel" class="control-panel">
-                <div id="setupControls" class="control-section hidden">
-                    <div class="control-title">Select 4 Cards</div>
-                    <div id="selectedCount" class="selected-count">Selected: 0/4</div>
-                    <button id="addToHandBtn" class="btn" disabled>Add to Hand</button>
-                </div>
-
-                <div id="gameControls" class="control-section hidden">
-                    <div class="control-title">Actions</div>
-                    <div id="drawCardInstruction" class="hidden">Click a card from the community pile to draw it</div>
-                    <button id="endTurnBtn" class="btn hidden">End Turn</button>
-
-                    <div id="guessControls" class="hidden">
-                        <div class="control-title">Make a Guess</div>
-                        <div class="guess-input">
-                            <input type="number" id="guessValueInput" placeholder="Value (0-11 or -1 for joker)" min="-1" max="11">
-                            <button id="submitGuessBtn" class="btn">Guess</button>
-                        </div>
-                        <div>Click on opponent's card to select it</div>
-                    </div>
-                </div>
-            </div>
+        <div id="joinControls">
+          <input
+            type="text"
+            id="playerNameInput"
+            class="name-input"
+            placeholder="Enter your name"
+            maxlength="20"
+          />
+          <br />
+          <button id="sitDownBtn" class="btn">Sit Down</button>
+          <button id="startGameBtn" class="btn start-btn" disabled>
+            Start Game
+          </button>
         </div>
 
-        <!-- Game Over Overlay -->
-        <div id="gameOverlay" class="game-over-overlay">
-            <div class="game-over-content">
-                <div id="winnerText" class="winner-text"></div>
-                <button id="newGameBtn" class="btn start-btn">New Game</button>
-            </div>
+        <div id="gameInProgress" class="hidden">
+          <h2>Game in progress...</h2>
+          <p>Please wait for the current game to finish.</p>
+        </div>
+      </div>
+
+      <!-- Game Table -->
+      <div id="gameTable" class="game-table">
+        <div class="game-info">
+          <div id="currentTurn" class="current-turn"></div>
+          <div id="turnPhase" class="turn-phase"></div>
         </div>
 
-        <!-- Messages -->
-        <div id="messageDiv" class="message hidden"></div>
+        <!-- Community Pile -->
+        <div id="communityPile" class="community-pile"></div>
+
+        <!-- Player Hands -->
+        <div id="playerHand0" class="player-hand player-0">
+          <div class="player-label"></div>
+        </div>
+        <div id="playerHand1" class="player-hand player-1">
+          <div class="player-label"></div>
+        </div>
+
+        <!-- Control Panel -->
+        <div id="controlPanel" class="control-panel">
+          <div id="setupControls" class="control-section hidden">
+            <div class="control-title">Select 4 Cards</div>
+            <div id="selectedCount" class="selected-count">Selected: 0/4</div>
+            <button id="addToHandBtn" class="btn" disabled>Add to Hand</button>
+          </div>
+
+          <div id="gameControls" class="control-section hidden">
+            <div class="control-title">Actions</div>
+            <div id="drawCardInstruction" class="hidden">
+              Click a card from the community pile to draw it
+            </div>
+            <button id="endTurnBtn" class="btn hidden">End Turn</button>
+
+            <div id="guessControls" class="hidden">
+              <div class="control-title">Make a Guess</div>
+              <div class="guess-input">
+                <input
+                  type="number"
+                  id="guessValueInput"
+                  placeholder="Value (0-11 or -1 for joker)"
+                  min="-1"
+                  max="11"
+                />
+                <button id="submitGuessBtn" class="btn">Guess</button>
+              </div>
+              <div>Click on opponent's card to select it</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Game Over Overlay -->
+      <div id="gameOverlay" class="game-over-overlay">
+        <div class="game-over-content">
+          <div id="winnerText" class="winner-text"></div>
+          <button id="newGameBtn" class="btn start-btn">New Game</button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div id="messageDiv" class="message hidden"></div>
     </div>
 
     <script>
-        class DaVinciCodeClient {
-            constructor() {
-                this.socket = io();
-                this.playerId = null;
-                this.playerIndex = -1;
-                this.gameState = null;
-                this.selectedCards = [];
-                this.drawnCard = null;
-                this.selectedOpponentCard = -1;
-                
-                this.initializeEventListeners();
-                this.setupSocketEvents();
-            }
+      class DaVinciCodeClient {
+        constructor() {
+          this.socket = io();
+          this.playerId = null;
+          this.playerIndex = -1;
+          this.gameState = null;
+          this.selectedCards = [];
+          this.drawnCard = null;
+          this.selectedOpponentCard = -1;
 
-            initializeEventListeners() {
-                // Lobby controls
-                document.getElementById('sitDownBtn').addEventListener('click', () => this.sitDown());
-                document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
-                document.getElementById('playerNameInput').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') this.sitDown();
-                });
-
-                // Game controls
-                document.getElementById('addToHandBtn').addEventListener('click', () => this.addToHand());
-                document.getElementById('submitGuessBtn').addEventListener('click', () => this.submitGuess());
-                document.getElementById('endTurnBtn').addEventListener('click', () => this.endTurn());
-                document.getElementById('newGameBtn').addEventListener('click', () => this.newGame());
-
-                // Input validation
-                document.getElementById('guessValueInput').addEventListener('input', (e) => {
-                    const value = parseInt(e.target.value);
-                    if (value < -1 || value > 11) {
-                        e.target.value = '';
-                    }
-                });
-            }
-
-            setupSocketEvents() {
-                this.socket.on('joinSuccess', (data) => {
-                    this.playerId = data.playerId;
-                    this.showMessage('Joined game successfully!', 2000);
-                });
-
-                this.socket.on('joinFailed', (data) => {
-                    this.showMessage(data.message, 3000);
-                });
-
-                this.socket.on('gameStateUpdate', (state) => {
-                    this.gameState = state;
-                    this.updateUI();
-                });
-
-                this.socket.on('gameStarted', () => {
-                    this.showGameTable();
-                    this.showMessage('Game started! Select 4 cards.', 3000);
-                });
-
-                this.socket.on('gamePlaying', () => {
-                    this.showMessage('All players ready! Game begins!', 2000);
-                });
-
-                this.socket.on('cardDrawn', (data) => {
-                    this.drawnCard = data.card;
-                    this.showMessage(`Drew ${this.formatCardValue(data.card)}`, 2000);
-                    this.updateGameControls();
-                });
-
-                this.socket.on('guessResult', (data) => {
-                    if (data.correct) {
-                        this.showMessage('Correct guess! Continue or end turn.', 3000);
-                    } else {
-                        this.showMessage('Wrong guess! Your most recent card is revealed.', 3000);
-                    }
-                    this.updateGameControls();
-                });
-
-                this.socket.on('gameFinished', (data) => {
-                    this.showGameOver(data.winner);
-                });
-
-                this.socket.on('gameReset', () => {
-                    this.resetGame();
-                });
-            }
-
-            sitDown() {
-                const name = document.getElementById('playerNameInput').value.trim() || null;
-                this.socket.emit('joinGame', { name });
-                
-                // Wait a bit for join to process, then set ready
-                setTimeout(() => {
-                    this.socket.emit('playerReady');
-                }, 100);
-            }
-
-            startGame() {
-                this.socket.emit('startGame');
-            }
-
-            addToHand() {
-                if (this.selectedCards.length === 4) {
-                    this.socket.emit('selectInitialCards', { cardIndices: this.selectedCards });
-                    this.selectedCards = [];
-                    this.updateSelectedCount();
-                }
-            }
-
-            selectCardFromPile(cardIndex) {
-                this.socket.emit('selectCardFromPile', { cardIndex });
-            }
-
-            placeCard() {
-                if (this.drawnCard) {
-                    this.socket.emit('placeCard', { 
-                        card: this.drawnCard,
-                        position: this.drawnCard.value === 'joker' ? null : null 
-                    });
-                    this.drawnCard = null;
-                    this.updateGameControls();
-                }
-            }
-
-            submitGuess() {
-                const guessValue = document.getElementById('guessValueInput').value;
-                if (this.selectedOpponentCard >= 0 && guessValue !== '') {
-                    const value = guessValue === '-1' ? 'joker' : parseInt(guessValue);
-                    this.socket.emit('guessCard', {
-                        cardIndex: this.selectedOpponentCard,
-                        guessedValue: value
-                    });
-                    document.getElementById('guessValueInput').value = '';
-                    this.selectedOpponentCard = -1;
-                    this.updateOpponentCardSelection();
-                }
-            }
-
-            endTurn() {
-                this.socket.emit('endTurn');
-            }
-
-            newGame() {
-                this.socket.emit('newGame');
-            }
-
-            updateUI() {
-                if (!this.gameState) return;
-
-                if (this.gameState.players.length > 0) {
-                    this.playerIndex = this.gameState.players.findIndex(p => p.id === this.playerId);
-                }
-
-                if (this.gameState.gameState === 'lobby') {
-                    this.updateLobby();
-                } else if (this.gameState.gameState === 'setup') {
-                    this.updateSetup();
-                } else if (this.gameState.gameState === 'playing') {
-                    this.updatePlaying();
-                }
-            }
-
-            updateLobby() {
-                document.getElementById('lobbyScreen').style.display = 'flex';
-                document.getElementById('gameTable').style.display = 'none';
-
-                // Update player slots
-                for (let i = 0; i < 2; i++) {
-                    const slot = document.getElementById(`player${i}Slot`);
-                    const nameDiv = slot.querySelector('.player-name');
-                    const statusDiv = slot.querySelector('.ready-status');
-
-                    if (i < this.gameState.players.length) {
-                        const player = this.gameState.players[i];
-                        const displayName = player.id === this.playerId ? `${player.name} (You)` : player.name;
-                        nameDiv.textContent = displayName;
-                        statusDiv.textContent = player.ready ? 'Ready!' : 'Not Ready';
-                        slot.classList.toggle('ready', player.ready);
-                    } else {
-                        nameDiv.textContent = `Player ${i + 1}`;
-                        statusDiv.textContent = 'Waiting...';
-                        slot.classList.remove('ready');
-                    }
-                }
-
-                // Update controls
-                const canStart = this.gameState.players.length === 2 && this.gameState.players.every(p => p.ready);
-                document.getElementById('startGameBtn').disabled = !canStart;
-
-                // Show appropriate controls
-                // Show appropriate controls
-                const isJoined = this.gameState.players.some(p => p.id === this.playerId);
-                if (this.gameState.players.length >= 2 && !isJoined) {
-                    // Show "game in progress" only to users who are NOT part of the game
-                    document.getElementById('joinControls').style.display = 'none';
-                    document.getElementById('gameInProgress').classList.remove('hidden');
-                } else {
-                    // Show join controls to users who are part of the game or when there's space
-                    document.getElementById('joinControls').style.display = 'block';
-                    document.getElementById('gameInProgress').classList.add('hidden');
-                }
-            }
-
-            updateSetup() {
-                this.showGameTable();
-                this.renderCommunityPile();
-                this.renderPlayerHands();
-                
-                // Show setup controls
-                document.getElementById('setupControls').classList.remove('hidden');
-                document.getElementById('gameControls').classList.add('hidden');
-                
-                this.updateSelectedCount();
-            }
-
-            updatePlaying() {
-                this.renderCommunityPile();
-                this.renderPlayerHands();
-                this.updateGameInfo();
-                this.updateGameControls();
-                
-                // Show game controls
-                document.getElementById('setupControls').classList.add('hidden');
-                document.getElementById('gameControls').classList.remove('hidden');
-            }
-
-            showGameTable() {
-                document.getElementById('lobbyScreen').style.display = 'none';
-                document.getElementById('gameTable').style.display = 'block';
-            }
-
-            renderCommunityPile() {
-                const pile = document.getElementById('communityPile');
-                pile.innerHTML = '';
-
-                if (this.gameState.gameState === 'setup') {
-                    // Show selectable cards during setup
-                    for (let i = 0; i < this.gameState.communityPileSize; i++) {
-                        const card = document.createElement('div');
-                        card.className = `card community-card ${this.selectedCards.includes(i) ? 'selected' : ''}`;
-                        card.style.background = i % 2 === 0 ? 'white' : '#333';
-                        card.textContent = '?';
-                        card.addEventListener('click', () => this.toggleCardSelection(i));
-                        pile.appendChild(card);
-                    }
-                } else {
-                    // Show selectable cards during game
-                    for (let i = 0; i < Math.min(this.gameState.communityPileSize, 20); i++) {
-                        const card = document.createElement('div');
-                        card.className = 'card community-card';
-                        card.style.background = i % 2 === 0 ? 'white' : '#333';
-                        card.textContent = '?';
-                        
-                        // Make cards clickable during draw phase
-                        if (this.gameState.gameState === 'playing' && 
-                            this.gameState.turnPhase === 'draw' && 
-                            this.playerIndex === this.gameState.currentPlayer) {
-                            card.style.cursor = 'pointer';
-                            card.addEventListener('click', () => this.selectCardFromPile(i));
-                        }
-                        
-                        pile.appendChild(card);
-                    }
-                }
-            }
-
-            renderPlayerHands() {
-    // Determine display order - current player always on bottom (index 0 display)
-    const displayOrder = this.playerIndex === 0 ? [0, 1] : [1, 0];
-    
-    for (let displayIdx = 0; displayIdx < 2; displayIdx++) {
-        const actualPlayerIdx = displayOrder[displayIdx];
-        const handElement = document.getElementById(`playerHand${displayIdx}`);
-        const label = handElement.querySelector('.player-label');
-        
-        // Clear existing cards
-        const cards = handElement.querySelectorAll('.card');
-        cards.forEach(card => card.remove());
-
-        // Set player label
-        if (this.gameState.players[actualPlayerIdx]) {
-            const player = this.gameState.players[actualPlayerIdx];
-            const displayName = player.id === this.playerId ? `${player.name} (You)` : player.name;
-            label.textContent = displayName;
+          this.initializeEventListeners();
+          this.setupSocketEvents();
         }
 
-        // Render cards
-        const hand = this.gameState.playerHands[actualPlayerIdx] || [];
-        hand.forEach((card, cardIdx) => {
-            const cardElement = this.createCardElement(card, actualPlayerIdx, cardIdx);
-            handElement.appendChild(cardElement);
-        });
-    }
-}
+        initializeEventListeners() {
+          // Lobby controls
+          document
+            .getElementById("sitDownBtn")
+            .addEventListener("click", () => this.sitDown());
+          document
+            .getElementById("startGameBtn")
+            .addEventListener("click", () => this.startGame());
+          document
+            .getElementById("playerNameInput")
+            .addEventListener("keypress", (e) => {
+              if (e.key === "Enter") this.sitDown();
+            });
 
-            createCardElement(card, playerIdx, cardIdx) {
-                const cardElement = document.createElement('div');
-                cardElement.className = `card ${card.color}`;
+          // Game controls
+          document
+            .getElementById("addToHandBtn")
+            .addEventListener("click", () => this.addToHand());
+          document
+            .getElementById("submitGuessBtn")
+            .addEventListener("click", () => this.submitGuess());
+          document
+            .getElementById("endTurnBtn")
+            .addEventListener("click", () => this.endTurn());
+          document
+            .getElementById("newGameBtn")
+            .addEventListener("click", () => this.newGame());
 
-                const isOwn = actualPlayerIdx === this.playerIndex;
-                const isRevealed = card.revealed;
-                const isHidden = !isOwn && !isRevealed;
-
-                if (isHidden) {
-                    cardElement.classList.add('hidden');
-                    cardElement.textContent = '?';
-                    // Show card back with correct color but hidden value
-                    cardElement.style.background = card.color === 'white' ? 'white' : '#333';
-                    cardElement.style.color = card.color === 'white' ? '#999' : '#666';
-                } else {
-                    cardElement.textContent = this.formatCardValue(card);
-                }
-
-                if (isRevealed) {
-                    cardElement.classList.add('revealed');
-                }
-
-                // Add click handler for opponent cards during guess phase
-                if (!isOwn && this.gameState.gameState === 'playing' && 
-                    this.gameState.turnPhase === 'guess' && 
-                    this.playerIndex === this.gameState.currentPlayer) {
-                    cardElement.style.cursor = 'pointer';
-                    cardElement.addEventListener('click', () => {
-                        this.selectedOpponentCard = cardIdx;
-                        this.selectedOpponentActualIndex = actualPlayerIdx;
-                        this.updateOpponentCardSelection();
-                    });
-
-                }
-
-                return cardElement;
-            }
-
-            toggleCardSelection(cardIndex) {
-                if (this.gameState.gameState !== 'setup') return;
-
-                const idx = this.selectedCards.indexOf(cardIndex);
-                if (idx >= 0) {
-                    this.selectedCards.splice(idx, 1);
-                } else if (this.selectedCards.length < 4) {
-                    this.selectedCards.push(cardIndex);
-                }
-
-                this.renderCommunityPile();
-                this.updateSelectedCount();
-            }
-
-            updateSelectedCount() {
-                const countElement = document.getElementById('selectedCount');
-                if (countElement) {
-                    countElement.textContent = `Selected: ${this.selectedCards.length}/4`;
-                }
-
-                const addBtn = document.getElementById('addToHandBtn');
-                if (addBtn) {
-                    addBtn.disabled = this.selectedCards.length !== 4;
-                }
-            }
-
-            updateGameInfo() {
-                const currentTurnElement = document.getElementById('currentTurn');
-                const turnPhaseElement = document.getElementById('turnPhase');
-
-                if (this.gameState.players[this.gameState.currentPlayer]) {
-                    const currentPlayer = this.gameState.players[this.gameState.currentPlayer];
-                    const isYourTurn = currentPlayer.id === this.playerId;
-                    currentTurnElement.textContent = isYourTurn ? 'Your Turn' : `${currentPlayer.name}'s Turn`;
-                }
-
-                const phaseText = {
-                    'draw': 'Draw a card',
-                    'place': 'Place the drawn card',
-                    'guess': 'Guess opponent\'s card'
-                };
-                turnPhaseElement.textContent = phaseText[this.gameState.turnPhase] || '';
-            }
-
-            
-            updateGameControls() {
-                const isMyTurn = this.playerIndex === this.gameState.currentPlayer;
-                const phase = this.gameState.turnPhase;
-
-                // Show/hide elements based on turn and phase
-                document.getElementById('drawCardInstruction').classList.toggle('hidden', !isMyTurn || phase !== 'draw');
-                document.getElementById('guessControls').classList.toggle('hidden', !isMyTurn || phase !== 'guess');
-                document.getElementById('endTurnBtn').classList.toggle('hidden', !isMyTurn || phase !== 'guess');
-                
-                // Handle drawn card placement UI
-                if (this.drawnCard && phase === 'place') {
-                    this.showCardPlacementUI();
-                } else {
-                    this.hideCardPlacementUI();
-                }
-            }
-
-
-            updateOpponentCardSelection() {
-                // Find which display position shows the opponent
-                const opponentDisplayIdx = this.playerIndex === 0 ? 1 : 0;
-                const handElement = document.getElementById(`playerHand${opponentDisplayIdx}`);
-                const cards = handElement.querySelectorAll('.card');
-                
-                cards.forEach((card, idx) => {
-                    card.classList.toggle('selected', idx === this.selectedOpponentCard);
-                });
-            }
-
-            formatCardValue(card) {
-                return card.value === 'joker' ? '-' : card.value.toString();
-            }
-
-            showGameOver(winner) {
-                document.getElementById('winnerText').textContent = `${winner} wins!`;
-                document.getElementById('gameOverlay').style.display = 'flex';
-            }
-
-            showMessage(message, duration = 3000) {
-                const messageDiv = document.getElementById('messageDiv');
-                messageDiv.textContent = message;
-                messageDiv.classList.remove('hidden');
-                
-                setTimeout(() => {
-                    messageDiv.classList.add('hidden');
-                }, duration);
-            }
-
-            resetGame() {
-                this.selectedCards = [];
-                this.drawnCard = null;
-                this.selectedOpponentCard = -1;
-                document.getElementById('gameOverlay').style.display = 'none';
-                document.getElementById('lobbyScreen').style.display = 'flex';
-                document.getElementById('gameTable').style.display = 'none';
-            }
-
-
-            showCardPlacementUI() {
-                if (document.getElementById('drawnCardContainer')) return;
-                
-                // Create drawn card display in control panel area
-                const controlPanel = document.getElementById('controlPanel');
-                const container = document.createElement('div');
-                container.id = 'drawnCardContainer';
-                container.style.cssText = `
-                    margin-bottom: 15px;
-                    padding: 15px;
-                    border: 2px solid #ffd700;
-                    border-radius: 10px;
-                    background: rgba(255, 215, 0, 0.1);
-                    text-align: center;
-                `;
-                
-                const currentHand = this.gameState.playerHands[this.playerIndex] || [];
-                const isJoker = this.drawnCard.value === 'joker';
-                
-                if (!this.cardPlacementPosition) {
-                    this.cardPlacementPosition = isJoker ? 0 : this.getFixedPosition(this.drawnCard, currentHand);
-                }
-                
-                container.innerHTML = `
-                    <div style="font-weight: bold; margin-bottom: 10px;">Drawn Card</div>
-                    <div class="card ${this.drawnCard.color}" style="margin: 0 auto 10px; display: inline-block;">${this.formatCardValue(this.drawnCard)}</div>
-                    ${isJoker ? `
-                        <div>Choose position with arrows, then click confirm</div>
-                    ` : `
-                        <div>Card will be placed in correct position</div>
-                    `}
-                    <button class="btn" id="confirmPlaceBtn" style="margin-top: 10px;">Confirm Placement</button>
-                `;
-                
-                controlPanel.insertBefore(container, controlPanel.firstChild);
-                
-                document.getElementById('confirmPlaceBtn').addEventListener('click', () => this.confirmCardPlacement());
-                
-                this.showPlacementArrows();
-            }
-
-            showPlacementArrows() {
-    const myHandElement = document.getElementById(`playerHand${this.playerIndex}`);
-    const currentHand = this.gameState.playerHands[this.playerIndex] || [];
-    const isJoker = this.drawnCard.value === 'joker';
-    
-    // Remove existing arrows
-    const existingArrows = myHandElement.querySelectorAll('.placement-arrow');
-    existingArrows.forEach(arrow => arrow.remove());
-    
-    if (isJoker) {
-        // Show arrows at all possible positions for joker
-        for (let i = 0; i <= currentHand.length; i++) {
-            this.createArrowAtPosition(myHandElement, i, currentHand.length);
-        }
-    } else {
-        // Show single arrow at fixed position for non-joker
-        const position = this.getFixedPosition(this.drawnCard, currentHand);
-        this.createArrowAtPosition(myHandElement, position, currentHand.length);
-    }
-}
-
-createArrowAtPosition(handElement, position, handLength) {
-    const arrow = document.createElement('div');
-    arrow.className = 'placement-arrow';
-    arrow.innerHTML = '▼';
-    arrow.style.cssText = `
-        position: absolute;
-        top: -25px;
-        color: #ffd700;
-        font-size: 20px;
-        font-weight: bold;
-        cursor: ${this.drawnCard.value === 'joker' ? 'pointer' : 'default'};
-        z-index: 30;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-    `;
-    
-    if (this.drawnCard.value === 'joker') {
-        arrow.style.cursor = 'pointer';
-        arrow.addEventListener('click', () => {
-            this.cardPlacementPosition = position;
-            this.updateArrowSelection();
-        });
-    }
-    
-    // Position the arrow
-    const cards = handElement.querySelectorAll('.card:not(.placement-arrow)');
-    if (position === 0) {
-        arrow.style.left = cards.length > 0 ? '-15px' : '50%';
-        arrow.style.transform = position === 0 && cards.length === 0 ? 'translateX(-50%)' : 'none';
-    } else if (position >= handLength) {
-        const lastCard = cards[cards.length - 1];
-        arrow.style.right = '-25px';
-    } else {
-        const cardWidth = 68; // 60px + 8px gap
-        arrow.style.left = `${position * cardWidth - 15}px`;
-    }
-    
-    handElement.appendChild(arrow);
-}
-
-updateArrowSelection() {
-    const arrows = document.querySelectorAll('.placement-arrow');
-    arrows.forEach((arrow, index) => {
-        arrow.style.color = index === this.cardPlacementPosition ? '#ff4444' : '#ffd700';
-        arrow.style.fontSize = index === this.cardPlacementPosition ? '24px' : '20px';
-    });
-}
-
-            hideCardPlacementUI() {
-    const container = document.getElementById('drawnCardContainer');
-    if (container) {
-        container.remove();
-    }
-    
-    // Remove placement arrows
-    const arrows = document.querySelectorAll('.placement-arrow');
-    arrows.forEach(arrow => arrow.remove());
-    
-    this.cardPlacementPosition = null;
-}
-
-            moveCardPosition(direction) {
-                const currentHand = this.gameState.playerHands[this.playerIndex] || [];
-                const maxPosition = currentHand.length;
-                
-                this.cardPlacementPosition = Math.max(0, Math.min(maxPosition, this.cardPlacementPosition + direction));
-                
-                document.getElementById('moveLeftBtn').disabled = this.cardPlacementPosition === 0;
-                document.getElementById('moveRightBtn').disabled = this.cardPlacementPosition === maxPosition;
-                
-                // Update position display
-                const positionText = document.querySelector('#drawnCardContainer div:last-of-type');
-                if (positionText && positionText.textContent.includes('Position:')) {
-                    positionText.textContent = `Position: ${this.cardPlacementPosition + 1} of ${maxPosition + 1}`;
-                }
-                
-                this.updatePlacementPreview();
-            }
-
-            updatePlacementPreview() {
-                // Add visual indicator in the actual hand
-                const handElement = document.getElementById(`playerHand${this.playerIndex}`);
-                
-                // Remove existing indicators
-                const existingIndicators = handElement.querySelectorAll('.placement-indicator');
-                existingIndicators.forEach(indicator => indicator.remove());
-                
-                // Add new indicator
-                const indicator = document.createElement('div');
-                indicator.className = 'placement-indicator';
-                
-                const cards = handElement.querySelectorAll('.card');
-                if (this.cardPlacementPosition === 0) {
-                    handElement.insertBefore(indicator, cards[0] || null);
-                } else if (this.cardPlacementPosition >= cards.length) {
-                    handElement.appendChild(indicator);
-                } else {
-                    handElement.insertBefore(indicator, cards[this.cardPlacementPosition]);
-                }
-            }
-
-            getFixedPosition(card, currentHand) {
-                // Calculate where a non-joker card should be placed
-                let position = 0;
-                for (const handCard of currentHand) {
-                    if (handCard.value === 'joker') continue;
-                    
-                    if (card.value < handCard.value || 
-                        (card.value === handCard.value && card.color === 'black' && handCard.color === 'white')) {
-                        break;
-                    }
-                    position++;
-                }
-                return position;
-            }
-
-            confirmCardPlacement() {
-                if (this.drawnCard) {
-                    this.socket.emit('placeCard', { 
-                        card: this.drawnCard,
-                        position: this.cardPlacementPosition
-                    });
-                    this.drawnCard = null;
-                    this.hideCardPlacementUI();
-                }
-            }
+          // Input validation
+          document
+            .getElementById("guessValueInput")
+            .addEventListener("input", (e) => {
+              const value = parseInt(e.target.value);
+              if (value < -1 || value > 11) {
+                e.target.value = "";
+              }
+            });
         }
 
-        // Initialize the game client
-        const gameClient = new DaVinciCodeClient();
+        setupSocketEvents() {
+          this.socket.on("joinSuccess", (data) => {
+            this.playerId = data.playerId;
+            this.showMessage("Joined game successfully!", 2000);
+          });
+
+          this.socket.on("joinFailed", (data) => {
+            this.showMessage(data.message, 3000);
+          });
+
+          this.socket.on("gameStateUpdate", (state) => {
+            this.gameState = state;
+            this.updateUI();
+          });
+
+          this.socket.on("gameStarted", () => {
+            this.showGameTable();
+            this.showMessage("Game started! Select 4 cards.", 3000);
+          });
+
+          this.socket.on("gamePlaying", () => {
+            this.showMessage("All players ready! Game begins!", 2000);
+          });
+
+          this.socket.on("cardDrawn", (data) => {
+            this.drawnCard = data.card;
+            this.showMessage(`Drew ${this.formatCardValue(data.card)}`, 2000);
+            this.updateGameControls();
+          });
+
+          this.socket.on("guessResult", (data) => {
+            if (data.correct) {
+              this.showMessage("Correct guess! Continue or end turn.", 3000);
+            } else {
+              this.showMessage(
+                "Wrong guess! Your most recent card is revealed.",
+                3000,
+              );
+            }
+            this.updateGameControls();
+          });
+
+          this.socket.on("gameFinished", (data) => {
+            this.showGameOver(data.winner);
+          });
+
+          this.socket.on("gameReset", () => {
+            this.resetGame();
+          });
+        }
+
+        sitDown() {
+          const name =
+            document.getElementById("playerNameInput").value.trim() || null;
+          this.socket.emit("joinGame", { name });
+
+          // Wait a bit for join to process, then set ready
+          setTimeout(() => {
+            this.socket.emit("playerReady");
+          }, 100);
+        }
+
+        startGame() {
+          this.socket.emit("startGame");
+        }
+
+        addToHand() {
+          if (this.selectedCards.length === 4) {
+            this.socket.emit("selectInitialCards", {
+              cardIndices: this.selectedCards,
+            });
+            this.selectedCards = [];
+            this.updateSelectedCount();
+          }
+        }
+
+        selectCardFromPile(cardIndex) {
+          this.socket.emit("selectCardFromPile", { cardIndex });
+        }
+
+        placeCard() {
+          if (this.drawnCard) {
+            this.socket.emit("placeCard", {
+              card: this.drawnCard,
+              position: this.drawnCard.value === "joker" ? null : null,
+            });
+            this.drawnCard = null;
+            this.updateGameControls();
+          }
+        }
+
+        submitGuess() {
+          const guessValue = document.getElementById("guessValueInput").value;
+          if (this.selectedOpponentCard >= 0 && guessValue !== "") {
+            const value = guessValue === "-1" ? "joker" : parseInt(guessValue);
+            this.socket.emit("guessCard", {
+              cardIndex: this.selectedOpponentCard,
+              guessedValue: value,
+            });
+            document.getElementById("guessValueInput").value = "";
+            this.selectedOpponentCard = -1;
+            this.updateOpponentCardSelection();
+          }
+        }
+
+        endTurn() {
+          this.socket.emit("endTurn");
+        }
+
+        newGame() {
+          this.socket.emit("newGame");
+        }
+
+        updateUI() {
+          if (!this.gameState) return;
+
+          if (this.gameState.players.length > 0) {
+            this.playerIndex = this.gameState.players.findIndex(
+              (p) => p.id === this.playerId,
+            );
+          }
+
+          if (this.gameState.gameState === "lobby") {
+            this.updateLobby();
+          } else if (this.gameState.gameState === "setup") {
+            this.updateSetup();
+          } else if (this.gameState.gameState === "playing") {
+            this.updatePlaying();
+          }
+        }
+
+        updateLobby() {
+          document.getElementById("lobbyScreen").style.display = "flex";
+          document.getElementById("gameTable").style.display = "none";
+
+          // Update player slots
+          for (let i = 0; i < 2; i++) {
+            const slot = document.getElementById(`player${i}Slot`);
+            const nameDiv = slot.querySelector(".player-name");
+            const statusDiv = slot.querySelector(".ready-status");
+
+            if (i < this.gameState.players.length) {
+              const player = this.gameState.players[i];
+              const displayName =
+                player.id === this.playerId
+                  ? `${player.name} (You)`
+                  : player.name;
+              nameDiv.textContent = displayName;
+              statusDiv.textContent = player.ready ? "Ready!" : "Not Ready";
+              slot.classList.toggle("ready", player.ready);
+            } else {
+              nameDiv.textContent = `Player ${i + 1}`;
+              statusDiv.textContent = "Waiting...";
+              slot.classList.remove("ready");
+            }
+          }
+
+          // Update controls
+          const canStart =
+            this.gameState.players.length === 2 &&
+            this.gameState.players.every((p) => p.ready);
+          document.getElementById("startGameBtn").disabled = !canStart;
+
+          // Show appropriate controls
+          // Show appropriate controls
+          const isJoined = this.gameState.players.some(
+            (p) => p.id === this.playerId,
+          );
+          if (this.gameState.players.length >= 2 && !isJoined) {
+            // Show "game in progress" only to users who are NOT part of the game
+            document.getElementById("joinControls").style.display = "none";
+            document
+              .getElementById("gameInProgress")
+              .classList.remove("hidden");
+          } else {
+            // Show join controls to users who are part of the game or when there's space
+            document.getElementById("joinControls").style.display = "block";
+            document.getElementById("gameInProgress").classList.add("hidden");
+          }
+        }
+
+        updateSetup() {
+          this.showGameTable();
+          this.renderCommunityPile();
+          this.renderPlayerHands();
+
+          // Show setup controls
+          document.getElementById("setupControls").classList.remove("hidden");
+          document.getElementById("gameControls").classList.add("hidden");
+
+          this.updateSelectedCount();
+        }
+
+        updatePlaying() {
+          this.renderCommunityPile();
+          this.renderPlayerHands();
+          this.updateGameInfo();
+          this.updateGameControls();
+
+          // Show game controls
+          document.getElementById("setupControls").classList.add("hidden");
+          document.getElementById("gameControls").classList.remove("hidden");
+        }
+
+        showGameTable() {
+          document.getElementById("lobbyScreen").style.display = "none";
+          document.getElementById("gameTable").style.display = "block";
+        }
+
+        renderCommunityPile() {
+          const pile = document.getElementById("communityPile");
+          pile.innerHTML = "";
+
+          if (this.gameState.gameState === "setup") {
+            // Setup phase: simple alternating color, index-based
+            for (let i = 0; i < this.gameState.communityPileSize; i++) {
+              const card = document.createElement("div");
+              card.className = `card community-card ${this.selectedCards.includes(i) ? "selected" : ""}`;
+              card.style.background = i % 2 === 0 ? "white" : "#333";
+              card.textContent = "?";
+              card.addEventListener("click", () => this.toggleCardSelection(i));
+              pile.appendChild(card);
+            }
+          } else {
+            // Playing phase: render cards with color + drawn check
+            const pileData = this.gameState.communityPile || [];
+
+            for (let i = 0; i < pileData.length; i++) {
+              const cardData = pileData[i];
+
+              if (cardData.drawn) {
+                const placeholder = document.createElement("div");
+                placeholder.className = "card community-card";
+                placeholder.style.opacity = 0;
+                pile.appendChild(placeholder);
+                continue;
+              }
+
+              const card = document.createElement("div");
+              card.className = "card community-card";
+              card.style.background =
+                cardData.color === "white" ? "white" : "#333";
+              card.textContent = "?";
+
+              if (
+                this.gameState.turnPhase === "draw" &&
+                this.playerIndex === this.gameState.currentPlayer
+              ) {
+                card.style.cursor = "pointer";
+                card.addEventListener("click", () =>
+                  this.selectCardFromPile(i),
+                );
+              }
+
+              pile.appendChild(card);
+            }
+          }
+        }
+
+        renderPlayerHands() {
+          // Determine display order - current player always on bottom (index 0 display)
+            const displayOrder = [
+                this.playerIndex,
+                1 - this.playerIndex,
+                ];
+
+
+          for (let displayIdx = 0; displayIdx < 2; displayIdx++) {
+            const actualPlayerIdx = displayOrder[displayIdx];
+            const handElement = document.getElementById(
+              `playerHand${displayIdx}`,
+            );
+            const label = handElement.querySelector(".player-label");
+
+            // Clear existing cards
+            const cards = handElement.querySelectorAll(".card");
+            cards.forEach((card) => card.remove());
+
+            // Set player label
+            if (this.gameState.players[actualPlayerIdx]) {
+              const player = this.gameState.players[actualPlayerIdx];
+              const displayName =
+                player.id === this.playerId
+                  ? `${player.name} (You)`
+                  : player.name;
+              label.textContent = displayName;
+            }
+
+            // Render cards
+            const hand = this.gameState.playerHands[actualPlayerIdx] || [];
+            hand.forEach((card, cardIdx) => {
+              const cardElement = this.createCardElement(
+                card,
+                actualPlayerIdx,
+                cardIdx,
+              );
+              handElement.appendChild(cardElement);
+            });
+          }
+        }
+
+        createCardElement(card, actualPlayerIdx, cardIdx) {
+          const cardElement = document.createElement("div");
+          cardElement.className = `card ${card.color}`;
+
+          const isOwn = this.gameState.players[actualPlayerIdx]?.id === this.playerId;
+          const isRevealed = card.revealed;
+          const isHidden = !isOwn && !isRevealed;
+
+          if (isHidden) {
+            // Show card back with color but no value
+            cardElement.classList.add("card-back");
+            cardElement.style.background =
+                card.color === "white" ? "white" : "#333";
+            cardElement.style.color = card.color === "white" ? "#999" : "#666";
+            cardElement.textContent = "?";
+            } else {
+            cardElement.textContent = this.formatCardValue(card);
+            }
+
+
+          if (isRevealed) {
+            cardElement.classList.add("revealed");
+          }
+
+          // Add click handler for opponent cards during guess phase
+          if (
+            !isOwn &&
+            this.gameState.gameState === "playing" &&
+            this.gameState.turnPhase === "guess" &&
+            this.playerIndex === this.gameState.currentPlayer
+          ) {
+            cardElement.style.cursor = "pointer";
+            cardElement.addEventListener("click", () => {
+              this.selectedOpponentCard = cardIdx;
+              this.selectedOpponentActualIndex = actualPlayerIdx;
+              this.updateOpponentCardSelection();
+            });
+          }
+
+          return cardElement;
+        }
+
+        toggleCardSelection(cardIndex) {
+          if (this.gameState.gameState !== "setup") return;
+
+          const idx = this.selectedCards.indexOf(cardIndex);
+          if (idx >= 0) {
+            this.selectedCards.splice(idx, 1);
+          } else if (this.selectedCards.length < 4) {
+            this.selectedCards.push(cardIndex);
+          }
+
+          this.renderCommunityPile();
+          this.updateSelectedCount();
+        }
+
+        updateSelectedCount() {
+          const countElement = document.getElementById("selectedCount");
+          if (countElement) {
+            countElement.textContent = `Selected: ${this.selectedCards.length}/4`;
+          }
+
+          const addBtn = document.getElementById("addToHandBtn");
+          if (addBtn) {
+            addBtn.disabled = this.selectedCards.length !== 4;
+          }
+        }
+
+        updateGameInfo() {
+          const currentTurnElement = document.getElementById("currentTurn");
+          const turnPhaseElement = document.getElementById("turnPhase");
+
+          if (this.gameState.players[this.gameState.currentPlayer]) {
+            const currentPlayer =
+              this.gameState.players[this.gameState.currentPlayer];
+            const isYourTurn = currentPlayer.id === this.playerId;
+            currentTurnElement.textContent = isYourTurn
+              ? "Your Turn"
+              : `${currentPlayer.name}'s Turn`;
+          }
+
+          const phaseText = {
+            draw: "Draw a card",
+            place: "Place the drawn card",
+            guess: "Guess opponent's card",
+          };
+          turnPhaseElement.textContent =
+            phaseText[this.gameState.turnPhase] || "";
+        }
+
+        updateGameControls() {
+          const isMyTurn = this.playerIndex === this.gameState.currentPlayer;
+          const phase = this.gameState.turnPhase;
+
+          // Show/hide elements based on turn and phase
+          document
+            .getElementById("drawCardInstruction")
+            .classList.toggle("hidden", !isMyTurn || phase !== "draw");
+          document
+            .getElementById("guessControls")
+            .classList.toggle("hidden", !isMyTurn || phase !== "guess");
+          document
+            .getElementById("endTurnBtn")
+            .classList.toggle("hidden", !isMyTurn || phase !== "guess");
+
+          // Handle drawn card placement UI
+          if (this.drawnCard && phase === "place") {
+            this.showCardPlacementUI();
+          } else {
+            this.hideCardPlacementUI();
+          }
+        }
+
+        updateOpponentCardSelection() {
+          // Find which display position shows the opponent
+          const opponentDisplayIdx = this.playerIndex === 0 ? 1 : 0;
+          const handElement = document.getElementById(
+            `playerHand${opponentDisplayIdx}`,
+          );
+          const cards = handElement.querySelectorAll(".card");
+
+          cards.forEach((card, idx) => {
+            card.classList.toggle(
+              "selected",
+              idx === this.selectedOpponentCard,
+            );
+          });
+        }
+
+        formatCardValue(card) {
+          return card.value === "joker" ? "-" : card.value.toString();
+        }
+
+        showGameOver(winner) {
+          document.getElementById("winnerText").textContent = `${winner} wins!`;
+          document.getElementById("gameOverlay").style.display = "flex";
+        }
+
+        showMessage(message, duration = 3000) {
+          const messageDiv = document.getElementById("messageDiv");
+          messageDiv.textContent = message;
+          messageDiv.classList.remove("hidden");
+
+          setTimeout(() => {
+            messageDiv.classList.add("hidden");
+          }, duration);
+        }
+
+        resetGame() {
+          this.selectedCards = [];
+          this.drawnCard = null;
+          this.selectedOpponentCard = -1;
+          document.getElementById("gameOverlay").style.display = "none";
+          document.getElementById("lobbyScreen").style.display = "flex";
+          document.getElementById("gameTable").style.display = "none";
+        }
+
+        showCardPlacementUI() {
+          if (document.getElementById("drawnCardContainer")) return;
+
+          // Create drawn card display in control panel area
+          const controlPanel = document.getElementById("controlPanel");
+          const container = document.createElement("div");
+          container.id = "drawnCardContainer";
+          container.style.cssText = `
+                          margin-bottom: 15px;
+                          padding: 15px;
+                          border: 2px solid #ffd700;
+                          border-radius: 10px;
+                          background: rgba(255, 215, 0, 0.1);
+                          text-align: center;
+                      `;
+
+          const currentHand =
+            this.gameState.playerHands[this.playerIndex] || [];
+          const isJoker = this.drawnCard.value === "joker";
+
+          if (!this.cardPlacementPosition) {
+            this.cardPlacementPosition = isJoker
+              ? 0
+              : this.getFixedPosition(this.drawnCard, currentHand);
+          }
+
+          container.innerHTML = `
+                          <div style="font-weight: bold; margin-bottom: 10px;">Drawn Card</div>
+                          <div class="card ${this.drawnCard.color}" style="margin: 0 auto 10px; display: inline-block;">${this.formatCardValue(this.drawnCard)}</div>
+                          ${
+                            isJoker
+                              ? `
+                              <div>Choose position with arrows, then click confirm</div>
+                          `
+                              : `
+                              <div>Card will be placed in correct position</div>
+                          `
+                          }
+                          <button class="btn" id="confirmPlaceBtn" style="margin-top: 10px;">Confirm Placement</button>
+                      `;
+
+          controlPanel.insertBefore(container, controlPanel.firstChild);
+
+          document
+            .getElementById("confirmPlaceBtn")
+            .addEventListener("click", () => this.confirmCardPlacement());
+
+          this.showPlacementArrows();
+        }
+
+        showPlacementArrows() {
+          const myHandElement = document.getElementById("playerHand0");
+          const currentHand =
+            this.gameState.playerHands[this.playerIndex] || [];
+          const isJoker = this.drawnCard.value === "joker";
+
+          // Remove existing arrows
+          const existingArrows =
+            myHandElement.querySelectorAll(".placement-arrow");
+          existingArrows.forEach((arrow) => arrow.remove());
+
+          if (isJoker) {
+            // Show arrows at all possible positions for joker
+            for (let i = 0; i <= currentHand.length; i++) {
+              this.createArrowAtPosition(myHandElement, i, currentHand.length);
+            }
+          } else {
+            // Show single arrow at fixed position for non-joker
+            const position = this.getFixedPosition(this.drawnCard, currentHand);
+            this.createArrowAtPosition(
+              myHandElement,
+              position,
+              currentHand.length,
+            );
+          }
+        }
+
+        createArrowAtPosition(handElement, position, handLength) {
+          const arrow = document.createElement("div");
+          arrow.className = "placement-arrow";
+          arrow.innerHTML = "▼";
+          arrow.style.cssText = `
+              position: absolute;
+              top: -25px;
+              color: #ffd700;
+              font-size: 20px;
+              font-weight: bold;
+              cursor: ${this.drawnCard.value === "joker" ? "pointer" : "default"};
+              z-index: 30;
+              text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+          `;
+
+          if (this.drawnCard.value === "joker") {
+            arrow.style.cursor = "pointer";
+            arrow.addEventListener("click", () => {
+              this.cardPlacementPosition = position;
+              this.updateArrowSelection();
+            });
+          }
+
+          // Position the arrow
+          const cards = handElement.querySelectorAll(
+            ".card:not(.placement-arrow)",
+          );
+          if (position === 0) {
+            arrow.style.left = cards.length > 0 ? "-15px" : "50%";
+            arrow.style.transform =
+              position === 0 && cards.length === 0
+                ? "translateX(-50%)"
+                : "none";
+          } else if (position >= handLength) {
+            const lastCard = cards[cards.length - 1];
+            arrow.style.right = "-25px";
+          } else {
+            const cardWidth = 68; // 60px + 8px gap
+            arrow.style.left = `${position * cardWidth - 15}px`;
+          }
+
+          handElement.appendChild(arrow);
+        }
+
+        updateArrowSelection() {
+          const arrows = document.querySelectorAll(".placement-arrow");
+          arrows.forEach((arrow, index) => {
+            arrow.style.color =
+              index === this.cardPlacementPosition ? "#ff4444" : "#ffd700";
+            arrow.style.fontSize =
+              index === this.cardPlacementPosition ? "24px" : "20px";
+          });
+        }
+
+        hideCardPlacementUI() {
+          const container = document.getElementById("drawnCardContainer");
+          if (container) {
+            container.remove();
+          }
+
+          // Remove placement arrows
+          const arrows = document.querySelectorAll(".placement-arrow");
+          arrows.forEach((arrow) => arrow.remove());
+
+          this.cardPlacementPosition = null;
+        }
+
+        moveCardPosition(direction) {
+          const currentHand =
+            this.gameState.playerHands[this.playerIndex] || [];
+          const maxPosition = currentHand.length;
+
+          this.cardPlacementPosition = Math.max(
+            0,
+            Math.min(maxPosition, this.cardPlacementPosition + direction),
+          );
+
+          document.getElementById("moveLeftBtn").disabled =
+            this.cardPlacementPosition === 0;
+          document.getElementById("moveRightBtn").disabled =
+            this.cardPlacementPosition === maxPosition;
+
+          // Update position display
+          const positionText = document.querySelector(
+            "#drawnCardContainer div:last-of-type",
+          );
+          if (positionText && positionText.textContent.includes("Position:")) {
+            positionText.textContent = `Position: ${this.cardPlacementPosition + 1} of ${maxPosition + 1}`;
+          }
+
+          this.updatePlacementPreview();
+        }
+
+        updatePlacementPreview() {
+          // Add visual indicator in the actual hand
+          const handElement = document.getElementById("playerHand0");
+
+          // Remove existing indicators
+          const existingIndicators = handElement.querySelectorAll(
+            ".placement-indicator",
+          );
+          existingIndicators.forEach((indicator) => indicator.remove());
+
+          // Add new indicator
+          const indicator = document.createElement("div");
+          indicator.className = "placement-indicator";
+
+          const cards = handElement.querySelectorAll(".card");
+          if (this.cardPlacementPosition === 0) {
+            handElement.insertBefore(indicator, cards[0] || null);
+          } else if (this.cardPlacementPosition >= cards.length) {
+            handElement.appendChild(indicator);
+          } else {
+            handElement.insertBefore(
+              indicator,
+              cards[this.cardPlacementPosition],
+            );
+          }
+        }
+
+        getFixedPosition(card, currentHand) {
+          // Calculate where a non-joker card should be placed
+          let position = 0;
+          for (const handCard of currentHand) {
+            if (handCard.value === "joker") continue;
+
+            if (
+              card.value < handCard.value ||
+              (card.value === handCard.value &&
+                card.color === "black" &&
+                handCard.color === "white")
+            ) {
+              break;
+            }
+            position++;
+          }
+          return position;
+        }
+
+        confirmCardPlacement() {
+          if (this.drawnCard) {
+            this.socket.emit("placeCard", {
+              card: this.drawnCard,
+              position: this.cardPlacementPosition,
+            });
+            this.drawnCard = null;
+            this.hideCardPlacementUI();
+          }
+        }
+      }
+
+      // Initialize the game client
+      const gameClient = new DaVinciCodeClient();
     </script>
-</body>
+  </body>
 </html>
