@@ -30,6 +30,22 @@
             margin-bottom: 30px;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
         }
+        .tile.selectable {
+            border-color: #f39c12 !important;
+            border-width: 3px;
+            cursor: pointer;
+        }
+
+        .tile.selectable:hover {
+            border-color: #e67e22 !important;
+            transform: translateY(-5px);
+        }
+
+        .tile.selected {
+            border-color: #27ae60 !important;
+            border-width: 3px;
+            background: rgba(46, 204, 113, 0.3) !important;
+        }
 
         /* Lobby Styles */
         .lobby {
@@ -206,12 +222,12 @@
         }
 
         /* Tile colors and states */
-        .tile.face-down-white {
+        .tile.face-down.white {
             background: linear-gradient(135deg, #f8f9fa, #e9ecef);
             color: #999;
         }
 
-        .tile.face-down-black {
+        .tile.face-down.black {
             background: linear-gradient(135deg, #343a40, #495057);
             color: #888;
         }
@@ -451,7 +467,8 @@
             
             <!-- Setup Instructions -->
             <div class="setup-instructions" id="setupInstructions" style="display: none;">
-                <div id="setupText">Select a tile from the pile</div>
+                <div id="setupText">Select 4 tiles from the pile</div>
+                <button id="addToHandBtn" class="btn" disabled>Add to Hand</button>
             </div>
             
             <!-- Status Area -->
@@ -483,13 +500,13 @@
             spectators: [],
             gameStarted: false,
             setupPhase: false,
-            currentTurn: 0,
+            currentSetupPlayer: 0,
+            selectedTiles: [[], []],
             pile: [],
             hands: [[], []],
             seatedCount: 0,
             myPlayerIndex: -1
         };
-
         // Generate unique player ID
         const playerId = 'Player_' + Math.random().toString(36).substr(2, 9);
         let playerRole = 'spectator'; // 'player' or 'spectator'
@@ -534,6 +551,15 @@
         socket.on('game-started', (newGameState) => {
             gameState = newGameState;
             startGameUI();
+        });
+
+        socket.on('game-update', (newGameState) => {
+            gameState = newGameState;
+            updateGameDisplay();
+        });
+
+        socket.on('error', (data) => {
+            showError(data.message);
         });
 
         // UI Functions
@@ -636,34 +662,76 @@
         function updatePile() {
             const pileContainer = document.getElementById('pileContainer');
             const pileExtra = document.getElementById('pileExtra');
+            const setupInstructions = document.getElementById('setupInstructions');
+            const addToHandBtn = document.getElementById('addToHandBtn');
             
             pileContainer.innerHTML = '';
             pileExtra.innerHTML = '';
             
+            const myIndex = getMyPlayerIndex();
+            const isMyTurn = gameState.setupPhase && myIndex === gameState.currentSetupPlayer;
+            
+            // Show/hide setup instructions
+            if (gameState.setupPhase) {
+                setupInstructions.style.display = 'block';
+                if (isMyTurn) {
+                    document.getElementById('setupText').textContent = `Select 4 tiles (${gameState.selectedTiles[myIndex].length}/4)`;
+                    addToHandBtn.disabled = gameState.selectedTiles[myIndex].length !== 4;
+                } else {
+                    document.getElementById('setupText').textContent = `${gameState.players[gameState.currentSetupPlayer]?.name}'s turn`;
+                    addToHandBtn.style.display = 'none';
+                }
+            } else {
+                setupInstructions.style.display = 'none';
+            }
+            
             // Display first 25 tiles in 5x5 grid
             for (let i = 0; i < Math.min(25, gameState.pile.length); i++) {
                 const tile = gameState.pile[i];
-                const tileElement = createTileElement(tile, true); // face down
+                const tileElement = createTileElement(tile, true);
+                
+                // Add setup phase interactivity
+                if (gameState.setupPhase && isMyTurn && tile.value !== 'joker') {
+                    tileElement.classList.add('selectable');
+                    const isSelected = gameState.selectedTiles[myIndex].some(t => t.id === tile.id);
+                    if (isSelected) {
+                        tileElement.classList.add('selected');
+                    }
+                    tileElement.addEventListener('click', () => handleTileClick(tile, tileElement));
+                }
+                
                 pileContainer.appendChild(tileElement);
             }
             
             // Display extra tile (26th) below the grid
             if (gameState.pile.length === 26) {
                 const extraTile = gameState.pile[25];
-                const tileElement = createTileElement(extraTile, true); // face down
+                const tileElement = createTileElement(extraTile, true);
+                
+                // Add setup phase interactivity
+                if (gameState.setupPhase && isMyTurn && extraTile.value !== 'joker') {
+                    tileElement.classList.add('selectable');
+                    const isSelected = gameState.selectedTiles[myIndex].some(t => t.id === extraTile.id);
+                    if (isSelected) {
+                        tileElement.classList.add('selected');
+                    }
+                    tileElement.addEventListener('click', () => handleTileClick(extraTile, tileElement));
+                }
+                
                 pileExtra.appendChild(tileElement);
             }
         }
 
+
         function createTileElement(tile, faceDown = false) {
             const tileDiv = document.createElement('div');
             tileDiv.className = 'tile';
+            tileDiv.classList.add(tile.color);
             
             if (faceDown) {
                 tileDiv.classList.add('face-down');
                 tileDiv.textContent = '?';
             } else {
-                tileDiv.classList.add(tile.color);
                 if (tile.value === 'joker') {
                     tileDiv.classList.add('joker');
                     tileDiv.textContent = '-';
@@ -678,14 +746,50 @@
         // Event listeners
         sitBtn.addEventListener('click', () => {
             if (playerRole === 'player' && !isSeated && !gameState.gameStarted) {
-                socket.emit('sit-down');
+                const playerName = playerNameInput.value.trim();
+                socket.emit('sit-down', { playerName });
             }
         });
-
         startBtn.addEventListener('click', () => {
             if (playerRole === 'player' && isSeated && gameState.canStart) {
                 socket.emit('start-game');
             }
+        });
+
+        // Initialize
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+            setTimeout(() => {
+                errorElement.style.display = 'none';
+            }, 3000);
+        }
+
+        function getMyPlayerIndex() {
+            return gameState.players.findIndex(p => p.id === playerId);
+        }
+
+        function handleTileClick(tile, tileElement) {
+            if (!gameState.setupPhase) return;
+            
+            const myIndex = getMyPlayerIndex();
+            if (myIndex === -1 || myIndex !== gameState.currentSetupPlayer) return;
+            
+            const isSelected = gameState.selectedTiles[myIndex].some(t => t.id === tile.id);
+            
+            if (isSelected) {
+                socket.emit('deselect-tile', { tileId: tile.id });
+            } else {
+                if (gameState.selectedTiles[myIndex].length < 4) {
+                    socket.emit('select-tile', { tileId: tile.id });
+                }
+            }
+        }
+
+        // Add to Hand button
+        document.getElementById('addToHandBtn').addEventListener('click', () => {
+            socket.emit('confirm-selection');
         });
 
         // Initialize

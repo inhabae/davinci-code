@@ -44,6 +44,9 @@ class GameRoom {
         this.players = [];
         this.spectators = [];
         this.gameStarted = false;
+        this.setupPhase = false;
+        this.currentSetupPlayer = 0;
+        this.selectedTiles = [[], []]; // Selected tiles for each player
         this.pile = [];
         this.hands = [[], []]; // Two hands for two players
         this.maxPlayers = 2;
@@ -136,38 +139,84 @@ class GameRoom {
     startGame() {
         if (this.canStart()) {
             this.gameStarted = true;
-            this.setupGame();
+            this.setupPhase = true;
+            this.currentSetupPlayer = 0;
+            this.selectedTiles = [[], []];
             return true;
         }
         return false;
     }
 
-    setupGame() {
-        // Reset hands
-        this.hands = [[], []];
-        
-        // Each player draws 4 tiles (no jokers in setup)
-        const nonJokerTiles = this.pile.filter(tile => tile.value !== 'joker');
-        
-        for (let playerIndex = 0; playerIndex < 2; playerIndex++) {
-            for (let i = 0; i < 4; i++) {
-                if (nonJokerTiles.length > 0) {
-                    const randomIndex = Math.floor(Math.random() * nonJokerTiles.length);
-                    const drawnTile = nonJokerTiles.splice(randomIndex, 1)[0];
-                    
-                    // Remove from pile
-                    const pileIndex = this.pile.findIndex(tile => tile.id === drawnTile.id);
-                    if (pileIndex !== -1) {
-                        this.pile.splice(pileIndex, 1);
-                    }
-                    
-                    this.hands[playerIndex].push(drawnTile);
-                }
-            }
-            
-            // Sort hand automatically
-            this.sortHand(playerIndex);
+    selectTile(playerIndex, tileId) {
+        if (!this.setupPhase || this.currentSetupPlayer !== playerIndex) {
+            return { success: false, message: "Not your turn to select" };
         }
+        
+        if (this.selectedTiles[playerIndex].length >= 4) {
+            return { success: false, message: "Already selected 4 tiles" };
+        }
+        
+        const tileIndex = this.pile.findIndex(tile => tile.id === tileId);
+        if (tileIndex === -1) {
+            return { success: false, message: "Tile not found" };
+        }
+        
+        const tile = this.pile[tileIndex];
+        if (tile.value === 'joker') {
+            return { success: false, message: "Cannot select joker tiles in setup" };
+        }
+        
+        this.selectedTiles[playerIndex].push(tile);
+        return { success: true };
+    }
+
+    deselectTile(playerIndex, tileId) {
+        if (!this.setupPhase || this.currentSetupPlayer !== playerIndex) {
+            return { success: false, message: "Not your turn to deselect" };
+        }
+        
+        const tileIndex = this.selectedTiles[playerIndex].findIndex(tile => tile.id === tileId);
+        if (tileIndex === -1) {
+            return { success: false, message: "Tile not selected" };
+        }
+        
+        this.selectedTiles[playerIndex].splice(tileIndex, 1);
+        return { success: true };
+    }
+
+    confirmSelection(playerIndex) {
+        if (!this.setupPhase || this.currentSetupPlayer !== playerIndex) {
+            return { success: false, message: "Not your turn" };
+        }
+        
+        if (this.selectedTiles[playerIndex].length !== 4) {
+            return { success: false, message: "Must select exactly 4 tiles" };
+        }
+        
+        // Move selected tiles to hand
+        this.selectedTiles[playerIndex].forEach(tile => {
+            const pileIndex = this.pile.findIndex(t => t.id === tile.id);
+            if (pileIndex !== -1) {
+                this.pile.splice(pileIndex, 1);
+            }
+            this.hands[playerIndex].push(tile);
+        });
+        
+        // Sort hand
+        this.sortHand(playerIndex);
+        
+        // Clear selections
+        this.selectedTiles[playerIndex] = [];
+        
+        // Move to next player or end setup phase
+        if (this.currentSetupPlayer === 1) {
+            this.setupPhase = false;
+            this.currentSetupPlayer = 0;
+        } else {
+            this.currentSetupPlayer = 1;
+        }
+        
+        return { success: true };
     }
 
     sortHand(playerIndex) {
@@ -176,6 +225,9 @@ class GameRoom {
 
     resetGame() {
         this.gameStarted = false;
+        this.setupPhase = false;
+        this.currentSetupPlayer = 0;
+        this.selectedTiles = [[], []];
         this.createTiles();
         this.hands = [[], []];
         // Reset seated status
@@ -196,6 +248,9 @@ class GameRoom {
                 name: s.name
             })),
             gameStarted: this.gameStarted,
+            setupPhase: this.setupPhase,
+            currentSetupPlayer: this.currentSetupPlayer,
+            selectedTiles: this.selectedTiles,
             canStart: this.canStart(),
             seatedCount: seatedPlayers.length,
             pile: this.pile.map(tile => ({ ...tile, faceDown: true })),
@@ -241,8 +296,13 @@ io.on('connection', (socket) => {
         io.emit('room-update', gameRoom.getGameState());
     });
     
-    socket.on('sit-down', () => {
+    socket.on('sit-down', (data) => {
         if (socket.role === 'player') {
+            const { playerName } = data || {};
+            const player = gameRoom.players.find(p => p.socketId === socket.id);
+            if (player && playerName && playerName.trim()) {
+                player.name = playerName.trim();
+            }
             if (gameRoom.sitDown(socket.id)) {
                 io.emit('room-update', gameRoom.getGameState());
             }
@@ -259,12 +319,53 @@ io.on('connection', (socket) => {
         }
     });
     
+    socket.on('select-tile', (data) => {
+        const { tileId } = data;
+        const player = gameRoom.players.find(p => p.socketId === socket.id);
+        if (player && player.seated) {
+            const playerIndex = gameRoom.players.findIndex(p => p.socketId === socket.id);
+            const result = gameRoom.selectTile(playerIndex, tileId);
+            if (result.success) {
+                io.emit('game-update', gameRoom.getGameState());
+            } else {
+                socket.emit('error', { message: result.message });
+            }
+        }
+    });
+    socket.on('deselect-tile', (data) => {
+        const { tileId } = data;
+        const player = gameRoom.players.find(p => p.socketId === socket.id);
+        if (player && player.seated) {
+            const playerIndex = gameRoom.players.findIndex(p => p.socketId === socket.id);
+            const result = gameRoom.deselectTile(playerIndex, tileId);
+            if (result.success) {
+                io.emit('game-update', gameRoom.getGameState());
+            } else {
+                socket.emit('error', { message: result.message });
+            }
+        }
+    });
+
+    socket.on('confirm-selection', () => {
+        const player = gameRoom.players.find(p => p.socketId === socket.id);
+        if (player && player.seated) {
+            const playerIndex = gameRoom.players.findIndex(p => p.socketId === socket.id);
+            const result = gameRoom.confirmSelection(playerIndex);
+            if (result.success) {
+                io.emit('game-update', gameRoom.getGameState());
+            } else {
+                socket.emit('error', { message: result.message });
+            }
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
         
         gameRoom.removePlayer(socket.id);
         io.emit('room-update', gameRoom.getGameState());
     });
+
 });
 
 // API endpoints
