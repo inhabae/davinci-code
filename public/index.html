@@ -394,6 +394,7 @@
           bottom: 10px;
           right: 10px;
           left: 10px;
+
           min-width: auto;
         }
       }
@@ -981,7 +982,7 @@
 
         updateOpponentCardSelection() {
           // Find which display position shows the opponent
-          const opponentDisplayIdx = this.playerIndex === 0 ? 1 : 0;
+          const opponentDisplayIdx = 1;
           const handElement = document.getElementById(
             `playerHand${opponentDisplayIdx}`,
           );

@@ -28,6 +28,7 @@ class GameRoom {
     this.revealedCards = [new Set(), new Set()];
     this.selectedCards = [[], []];
     this.turnPhase = "draw"; // draw, place, guess
+    this.lastPlacedIndex = [null, null];
   }
 
   addPlayer(socket, name) {
@@ -285,20 +286,24 @@ class GameRoom {
     if (playerIndex !== this.currentPlayer) return false;
     if (this.turnPhase !== "place") return false;
 
+    // Insert card and record its exact index
     if (card.value === "joker") {
-      // Joker can be placed anywhere
       if (position !== null) {
         this.playerHands[playerIndex].splice(position, 0, card);
+        this.lastPlacedIndex[playerIndex] = position;
       } else {
         this.playerHands[playerIndex].push(card);
+        this.lastPlacedIndex[playerIndex] =
+          this.playerHands[playerIndex].length - 1;
       }
     } else {
-      // Non-joker: insert at the provided position (client already computed correct index)
       if (position !== null) {
         this.playerHands[playerIndex].splice(position, 0, card);
+        this.lastPlacedIndex[playerIndex] = position;
       } else {
-        // fallback: if no position provided, just append
         this.playerHands[playerIndex].push(card);
+        this.lastPlacedIndex[playerIndex] =
+          this.playerHands[playerIndex].length - 1;
       }
     }
 
@@ -335,7 +340,7 @@ class GameRoom {
       // Reveal player's most recent card
       const playerHand = this.playerHands[playerIndex];
       if (playerHand.length > 0) {
-        const mostRecentIndex = playerHand.length - 1;
+        const mostRecentIndex = this.lastPlacedIndex[playerIndex];
         this.revealedCards[playerIndex].add(mostRecentIndex);
 
         // Check if current player lost
