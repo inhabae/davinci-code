@@ -664,12 +664,15 @@
                 document.getElementById('startGameBtn').disabled = !canStart;
 
                 // Show appropriate controls
-                if (this.gameState.players.length >= 2) {
+                // Show appropriate controls
+                const isJoined = this.gameState.players.some(p => p.id === this.playerId);
+                if (this.gameState.players.length >= 2 && !isJoined) {
+                    // Show "game in progress" only to users who are NOT part of the game
                     document.getElementById('joinControls').style.display = 'none';
                     document.getElementById('gameInProgress').classList.remove('hidden');
                 } else {
-                    const isJoined = this.gameState.players.some(p => p.id === this.playerId);
-                    document.getElementById('joinControls').style.display = isJoined ? 'block' : 'block';
+                    // Show join controls to users who are part of the game or when there's space
+                    document.getElementById('joinControls').style.display = 'block';
                     document.getElementById('gameInProgress').classList.add('hidden');
                 }
             }
