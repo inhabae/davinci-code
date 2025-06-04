@@ -54,7 +54,9 @@ class GameRoom {
     const player = this.players.find(p => p.id === socketId);
     if (player) {
       player.ready = ready;
+      return true;
     }
+    return false;
   }
 
   canStartGame() {
