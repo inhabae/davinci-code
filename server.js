@@ -203,6 +203,7 @@ class GameRoom {
           value: value,
           hidden: false,
           revealed: false,
+          communityIndex: `${color}-${value}`,
         });
       }
 
@@ -262,6 +263,7 @@ class GameRoom {
       color: drawnCardMeta.color,
       hidden: false,
       revealed: false,
+      communityIndex: drawnCardMeta.communityIndex,
     };
 
     if (drawnCardMeta.value === "joker") {
@@ -326,7 +328,9 @@ class GameRoom {
 
     if (isCorrect) {
       // Reveal the guessed card
-      this.revealedCards[opponentIndex].add(opponentCardIndex);
+      this.revealedCards[opponentIndex].add(
+        opponentHand[opponentCardIndex].communityIndex,
+      );
 
       // Check if opponent lost (all cards revealed)
       if (this.revealedCards[opponentIndex].size === opponentHand.length) {
@@ -341,7 +345,8 @@ class GameRoom {
       const playerHand = this.playerHands[playerIndex];
       if (playerHand.length > 0) {
         const mostRecentIndex = this.lastPlacedIndex[playerIndex];
-        this.revealedCards[playerIndex].add(mostRecentIndex);
+        const lastCardObj = playerHand[mostRecentIndex];
+        this.revealedCards[playerIndex].add(lastCardObj.communityIndex);
 
         // Check if current player lost
         if (this.revealedCards[playerIndex].size === playerHand.length) {
@@ -389,9 +394,9 @@ class GameRoom {
       communityPileSize: this.communityPile.filter((c) => !c.drawn).length,
 
       playerHands: this.playerHands.map((hand, index) =>
-        hand.map((card, cardIndex) => ({
+        hand.map((card) => ({
           ...card,
-          revealed: this.revealedCards[index].has(cardIndex),
+          revealed: this.revealedCards[index].has(card.communityIndex),
         })),
       ),
     };
