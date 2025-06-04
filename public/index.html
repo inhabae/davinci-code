@@ -742,35 +742,39 @@
             }
 
             renderPlayerHands() {
-                for (let playerIdx = 0; playerIdx < 2; playerIdx++) {
-                    const handElement = document.getElementById(`playerHand${playerIdx}`);
-                    const label = handElement.querySelector('.player-label');
-                    
-                    // Clear existing cards
-                    const cards = handElement.querySelectorAll('.card');
-                    cards.forEach(card => card.remove());
+    // Determine display order - current player always on bottom (index 0 display)
+    const displayOrder = this.playerIndex === 0 ? [0, 1] : [1, 0];
+    
+    for (let displayIdx = 0; displayIdx < 2; displayIdx++) {
+        const actualPlayerIdx = displayOrder[displayIdx];
+        const handElement = document.getElementById(`playerHand${displayIdx}`);
+        const label = handElement.querySelector('.player-label');
+        
+        // Clear existing cards
+        const cards = handElement.querySelectorAll('.card');
+        cards.forEach(card => card.remove());
 
-                    // Set player label
-                    if (this.gameState.players[playerIdx]) {
-                        const player = this.gameState.players[playerIdx];
-                        const displayName = player.id === this.playerId ? `${player.name} (You)` : player.name;
-                        label.textContent = displayName;
-                    }
+        // Set player label
+        if (this.gameState.players[actualPlayerIdx]) {
+            const player = this.gameState.players[actualPlayerIdx];
+            const displayName = player.id === this.playerId ? `${player.name} (You)` : player.name;
+            label.textContent = displayName;
+        }
 
-                    // Render cards
-                    const hand = this.gameState.playerHands[playerIdx] || [];
-                    hand.forEach((card, cardIdx) => {
-                        const cardElement = this.createCardElement(card, playerIdx, cardIdx);
-                        handElement.appendChild(cardElement);
-                    });
-                }
-            }
+        // Render cards
+        const hand = this.gameState.playerHands[actualPlayerIdx] || [];
+        hand.forEach((card, cardIdx) => {
+            const cardElement = this.createCardElement(card, actualPlayerIdx, cardIdx);
+            handElement.appendChild(cardElement);
+        });
+    }
+}
 
             createCardElement(card, playerIdx, cardIdx) {
                 const cardElement = document.createElement('div');
                 cardElement.className = `card ${card.color}`;
 
-                const isOwn = playerIdx === this.playerIndex;
+                const isOwn = actualPlayerIdx === this.playerIndex;
                 const isRevealed = card.revealed;
                 const isHidden = !isOwn && !isRevealed;
 
@@ -795,8 +799,10 @@
                     cardElement.style.cursor = 'pointer';
                     cardElement.addEventListener('click', () => {
                         this.selectedOpponentCard = cardIdx;
+                        this.selectedOpponentActualIndex = actualPlayerIdx;
                         this.updateOpponentCardSelection();
                     });
+
                 }
 
                 return cardElement;
@@ -866,9 +872,9 @@
 
 
             updateOpponentCardSelection() {
-                // Visual feedback for selected opponent card
-                const opponentIdx = 1 - this.playerIndex;
-                const handElement = document.getElementById(`playerHand${opponentIdx}`);
+                // Find which display position shows the opponent
+                const opponentDisplayIdx = this.playerIndex === 0 ? 1 : 0;
+                const handElement = document.getElementById(`playerHand${opponentDisplayIdx}`);
                 const cards = handElement.querySelectorAll('.card');
                 
                 cards.forEach((card, idx) => {
@@ -904,12 +910,22 @@
                 document.getElementById('gameTable').style.display = 'none';
             }
 
+
             showCardPlacementUI() {
                 if (document.getElementById('drawnCardContainer')) return;
                 
+                // Create drawn card display in control panel area
+                const controlPanel = document.getElementById('controlPanel');
                 const container = document.createElement('div');
                 container.id = 'drawnCardContainer';
-                container.className = 'drawn-card-container';
+                container.style.cssText = `
+                    margin-bottom: 15px;
+                    padding: 15px;
+                    border: 2px solid #ffd700;
+                    border-radius: 10px;
+                    background: rgba(255, 215, 0, 0.1);
+                    text-align: center;
+                `;
                 
                 const currentHand = this.gameState.playerHands[this.playerIndex] || [];
                 const isJoker = this.drawnCard.value === 'joker';
@@ -919,43 +935,103 @@
                 }
                 
                 container.innerHTML = `
-                    <h3>Place Your Card</h3>
-                    <div class="placement-preview">
-                        <div class="card ${this.drawnCard.color}">${this.formatCardValue(this.drawnCard)}</div>
-                    </div>
+                    <div style="font-weight: bold; margin-bottom: 10px;">Drawn Card</div>
+                    <div class="card ${this.drawnCard.color}" style="margin: 0 auto 10px; display: inline-block;">${this.formatCardValue(this.drawnCard)}</div>
                     ${isJoker ? `
-                        <div class="arrow-controls">
-                            <button class="arrow-btn" id="moveLeftBtn">◀</button>
-                            <button class="arrow-btn" id="moveRightBtn">▶</button>
-                        </div>
-                        <div>Position: ${this.cardPlacementPosition + 1} of ${currentHand.length + 1}</div>
+                        <div>Choose position with arrows, then click confirm</div>
                     ` : `
-                        <div>Fixed position in hand</div>
+                        <div>Card will be placed in correct position</div>
                     `}
-                    <div class="arrow-controls">
-                        <button class="arrow-btn" id="confirmPlaceBtn">▼ Confirm</button>
-                    </div>
+                    <button class="btn" id="confirmPlaceBtn" style="margin-top: 10px;">Confirm Placement</button>
                 `;
                 
-                document.body.appendChild(container);
-                
-                if (isJoker) {
-                    document.getElementById('moveLeftBtn').addEventListener('click', () => this.moveCardPosition(-1));
-                    document.getElementById('moveRightBtn').addEventListener('click', () => this.moveCardPosition(1));
-                }
+                controlPanel.insertBefore(container, controlPanel.firstChild);
                 
                 document.getElementById('confirmPlaceBtn').addEventListener('click', () => this.confirmCardPlacement());
                 
-                this.updatePlacementPreview();
+                this.showPlacementArrows();
             }
 
+            showPlacementArrows() {
+    const myHandElement = document.getElementById(`playerHand${this.playerIndex}`);
+    const currentHand = this.gameState.playerHands[this.playerIndex] || [];
+    const isJoker = this.drawnCard.value === 'joker';
+    
+    // Remove existing arrows
+    const existingArrows = myHandElement.querySelectorAll('.placement-arrow');
+    existingArrows.forEach(arrow => arrow.remove());
+    
+    if (isJoker) {
+        // Show arrows at all possible positions for joker
+        for (let i = 0; i <= currentHand.length; i++) {
+            this.createArrowAtPosition(myHandElement, i, currentHand.length);
+        }
+    } else {
+        // Show single arrow at fixed position for non-joker
+        const position = this.getFixedPosition(this.drawnCard, currentHand);
+        this.createArrowAtPosition(myHandElement, position, currentHand.length);
+    }
+}
+
+createArrowAtPosition(handElement, position, handLength) {
+    const arrow = document.createElement('div');
+    arrow.className = 'placement-arrow';
+    arrow.innerHTML = '▼';
+    arrow.style.cssText = `
+        position: absolute;
+        top: -25px;
+        color: #ffd700;
+        font-size: 20px;
+        font-weight: bold;
+        cursor: ${this.drawnCard.value === 'joker' ? 'pointer' : 'default'};
+        z-index: 30;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    `;
+    
+    if (this.drawnCard.value === 'joker') {
+        arrow.style.cursor = 'pointer';
+        arrow.addEventListener('click', () => {
+            this.cardPlacementPosition = position;
+            this.updateArrowSelection();
+        });
+    }
+    
+    // Position the arrow
+    const cards = handElement.querySelectorAll('.card:not(.placement-arrow)');
+    if (position === 0) {
+        arrow.style.left = cards.length > 0 ? '-15px' : '50%';
+        arrow.style.transform = position === 0 && cards.length === 0 ? 'translateX(-50%)' : 'none';
+    } else if (position >= handLength) {
+        const lastCard = cards[cards.length - 1];
+        arrow.style.right = '-25px';
+    } else {
+        const cardWidth = 68; // 60px + 8px gap
+        arrow.style.left = `${position * cardWidth - 15}px`;
+    }
+    
+    handElement.appendChild(arrow);
+}
+
+updateArrowSelection() {
+    const arrows = document.querySelectorAll('.placement-arrow');
+    arrows.forEach((arrow, index) => {
+        arrow.style.color = index === this.cardPlacementPosition ? '#ff4444' : '#ffd700';
+        arrow.style.fontSize = index === this.cardPlacementPosition ? '24px' : '20px';
+    });
+}
+
             hideCardPlacementUI() {
-                const container = document.getElementById('drawnCardContainer');
-                if (container) {
-                    container.remove();
-                }
-                this.cardPlacementPosition = null;
-            }
+    const container = document.getElementById('drawnCardContainer');
+    if (container) {
+        container.remove();
+    }
+    
+    // Remove placement arrows
+    const arrows = document.querySelectorAll('.placement-arrow');
+    arrows.forEach(arrow => arrow.remove());
+    
+    this.cardPlacementPosition = null;
+}
 
             moveCardPosition(direction) {
                 const currentHand = this.gameState.playerHands[this.playerIndex] || [];
