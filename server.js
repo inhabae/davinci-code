@@ -74,26 +74,14 @@ class GameRoom {
   createShuffledDeck() {
     const deck = [];
     
-    // Create 13 white cards (0-11 + joker)
-    for (let i = 0; i <= 11; i++) {
-      deck.push({ color: 'white', value: i, hidden: true });
-    }
-    deck.push({ color: 'white', value: 'joker', hidden: true });
-    
-    // Create 13 black cards (0-11 + joker)
-    for (let i = 0; i <= 11; i++) {
-      deck.push({ color: 'black', value: i, hidden: true });
-    }
-    deck.push({ color: 'black', value: 'joker', hidden: true });
-    
-    // Shuffle the deck
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
+    // Create alternating pattern of white and black cards for visual display
+    for (let i = 0; i < 26; i++) {
+        const color = i % 2 === 0 ? 'white' : 'black';
+        deck.push({ color: color, hidden: true });
     }
     
     return deck;
-  }
+    }
 
   selectInitialCards(playerId, cardIndices) {
     if (this.gameState !== 'setup') return false;
@@ -102,25 +90,63 @@ class GameRoom {
     const playerIndex = this.players.findIndex(p => p.id === playerId);
     if (playerIndex === -1) return false;
 
-    // Check if cards contain jokers (not allowed in initial selection)
-    const selectedCards = cardIndices.map(i => this.communityPile[i]);
-    if (selectedCards.some(card => card.value === 'joker')) return false;
-
-    // Assign random values based on color
-    const finalCards = selectedCards.map(card => {
-      const availableValues = this.getAvailableValues(card.color);
-      const randomValue = availableValues[Math.floor(Math.random() * availableValues.length)];
-      return { ...card, value: randomValue, hidden: false };
+    // Store selected card colors for this player
+    const selectedColors = cardIndices.map(i => {
+        // Determine color based on card position (alternating white/black)
+        return i % 2 === 0 ? 'white' : 'black';
     });
 
-    this.playerHands[playerIndex] = this.sortHand(finalCards);
-    this.selectedCards[playerIndex] = cardIndices;
-
-    // Remove selected cards from community pile
-    this.communityPile = this.communityPile.filter((_, index) => !cardIndices.includes(index));
-
+    this.selectedCards[playerIndex] = selectedColors;
     return true;
+    }
+
+    dealInitialHands() {
+        const whiteValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
+        const blackValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
+        
+        // Shuffle available values
+        this.shuffleArray(whiteValues);
+        this.shuffleArray(blackValues);
+        
+        let whiteIndex = 0;
+        let blackIndex = 0;
+
+        // Deal cards to each player
+        for (let playerIndex = 0; playerIndex < 2; playerIndex++) {
+            const selectedColors = this.selectedCards[playerIndex];
+            const hand = [];
+            
+            for (const color of selectedColors) {
+            let value;
+            if (color === 'white') {
+                value = whiteValues[whiteIndex++];
+            } else {
+                value = blackValues[blackIndex++];
+            }
+            
+            hand.push({
+                color: color,
+                value: value,
+                hidden: false,
+                revealed: false
+            });
+            }
+            
+            this.playerHands[playerIndex] = this.sortHand(hand);
+        }
+        
+        // Remove dealt cards from community pile
+        const totalDealtCards = 8; // 4 cards per player
+        this.communityPile = this.communityPile.slice(totalDealtCards);
+        }
+
+shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
   }
+}
+
 
   getAvailableValues(color) {
     const allValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
@@ -308,20 +334,22 @@ io.on('connection', (socket) => {
   });
 
   // Select initial cards
-  socket.on('selectInitialCards', (data) => {
+    socket.on('selectInitialCards', (data) => {
     const success = gameRoom.selectInitialCards(socket.id, data.cardIndices);
     
     if (success) {
-      io.emit('gameStateUpdate', gameRoom.getGameState());
-      
-      // Check if both players have selected
-      if (gameRoom.selectedCards[0].length === 4 && gameRoom.selectedCards[1].length === 4) {
+        io.emit('gameStateUpdate', gameRoom.getGameState());
+        
+        // Check if both players have selected
+        if (gameRoom.selectedCards[0].length === 4 && gameRoom.selectedCards[1].length === 4) {
+        // Deal the actual cards
+        gameRoom.dealInitialHands();
         gameRoom.gameState = 'playing';
         io.emit('gameStateUpdate', gameRoom.getGameState());
         io.emit('gamePlaying');
-      }
+        }
     }
-  });
+    });
 
   // Draw card
   socket.on('drawCard', () => {
