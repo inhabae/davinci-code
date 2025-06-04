@@ -566,7 +566,11 @@
             sitDown() {
                 const name = document.getElementById('playerNameInput').value.trim() || null;
                 this.socket.emit('joinGame', { name });
-                this.socket.emit('playerReady');
+                
+                // Wait a bit for join to process, then set ready
+                setTimeout(() => {
+                    this.socket.emit('playerReady');
+                }, 100);
             }
 
             startGame() {
