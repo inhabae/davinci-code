@@ -293,11 +293,13 @@ class GameRoom {
         this.playerHands[playerIndex].push(card);
       }
     } else {
-      // Non-joker has fixed position
-      this.playerHands[playerIndex].push(card);
-      this.playerHands[playerIndex] = this.sortHand(
-        this.playerHands[playerIndex],
-      );
+      // Non-joker: insert at the provided position (client already computed correct index)
+      if (position !== null) {
+        this.playerHands[playerIndex].splice(position, 0, card);
+      } else {
+        // fallback: if no position provided, just append
+        this.playerHands[playerIndex].push(card);
+      }
     }
 
     this.turnPhase = "guess";

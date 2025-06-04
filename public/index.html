@@ -474,11 +474,9 @@
               <div class="control-title">Make a Guess</div>
               <div class="guess-input">
                 <input
-                  type="number"
+                  type="text"
                   id="guessValueInput"
-                  placeholder="Value (0-11 or -1 for joker)"
-                  min="-1"
-                  max="11"
+                  placeholder="Value (0-11 or - for joker)"
                 />
                 <button id="submitGuessBtn" class="btn">Guess</button>
               </div>
@@ -552,6 +550,7 @@
                 e.target.value = "";
               }
             });
+          this.hasMadeFirstCorrectGuess = false;
         }
 
         setupSocketEvents() {
@@ -584,9 +583,12 @@
             this.updateGameControls();
           });
 
+          // New:
           this.socket.on("guessResult", (data) => {
             if (data.correct) {
               this.showMessage("Correct guess! Continue or end turn.", 3000);
+              // Now that a correct guess has occurred, allow skipping
+              this.hasMadeFirstCorrectGuess = true;
             } else {
               this.showMessage(
                 "Wrong guess! Your most recent card is revealed.",
@@ -609,6 +611,9 @@
           const name =
             document.getElementById("playerNameInput").value.trim() || null;
           this.socket.emit("joinGame", { name });
+
+          // Disable the “Sit Down” button immediately
+          document.getElementById("sitDownBtn").disabled = true;
 
           // Wait a bit for join to process, then set ready
           setTimeout(() => {
@@ -646,9 +651,10 @@
         }
 
         submitGuess() {
+          // New:
           const guessValue = document.getElementById("guessValueInput").value;
           if (this.selectedOpponentCard >= 0 && guessValue !== "") {
-            const value = guessValue === "-1" ? "joker" : parseInt(guessValue);
+            const value = guessValue === "-" ? "joker" : parseInt(guessValue);
             this.socket.emit("guessCard", {
               cardIndex: this.selectedOpponentCard,
               guessedValue: value,
@@ -656,6 +662,8 @@
             document.getElementById("guessValueInput").value = "";
             this.selectedOpponentCard = -1;
             this.updateOpponentCardSelection();
+
+            // (Remove the line that enabled “End Turn” here; we’ll only enable it on a correct guess below.)
           }
         }
 
@@ -815,11 +823,7 @@
 
         renderPlayerHands() {
           // Determine display order - current player always on bottom (index 0 display)
-            const displayOrder = [
-                this.playerIndex,
-                1 - this.playerIndex,
-                ];
-
+          const displayOrder = [this.playerIndex, 1 - this.playerIndex];
 
           for (let displayIdx = 0; displayIdx < 2; displayIdx++) {
             const actualPlayerIdx = displayOrder[displayIdx];
@@ -859,7 +863,8 @@
           const cardElement = document.createElement("div");
           cardElement.className = `card ${card.color}`;
 
-          const isOwn = this.gameState.players[actualPlayerIdx]?.id === this.playerId;
+          const isOwn =
+            this.gameState.players[actualPlayerIdx]?.id === this.playerId;
           const isRevealed = card.revealed;
           const isHidden = !isOwn && !isRevealed;
 
@@ -867,21 +872,18 @@
             // Show card back with color but no value
             cardElement.classList.add("card-back");
             cardElement.style.background =
-                card.color === "white" ? "white" : "#333";
+              card.color === "white" ? "white" : "#333";
             cardElement.style.color = card.color === "white" ? "#999" : "#666";
             cardElement.textContent = "?";
-            } else {
+          } else {
             cardElement.textContent = this.formatCardValue(card);
-            }
-
+          }
 
           if (isRevealed) {
             cardElement.classList.add("revealed");
-          }
-
-          // Add click handler for opponent cards during guess phase
-          if (
+          } else if (
             !isOwn &&
+            !isRevealed && // <— only attach if not already revealed
             this.gameState.gameState === "playing" &&
             this.gameState.turnPhase === "guess" &&
             this.playerIndex === this.gameState.currentPlayer
@@ -956,9 +958,18 @@
           document
             .getElementById("guessControls")
             .classList.toggle("hidden", !isMyTurn || phase !== "guess");
-          document
-            .getElementById("endTurnBtn")
-            .classList.toggle("hidden", !isMyTurn || phase !== "guess");
+          const endBtn = document.getElementById("endTurnBtn");
+          endBtn.classList.toggle("hidden", !isMyTurn || phase !== "guess");
+
+          // If we have just entered guess-phase (and it’s our turn),
+          // disable the End Turn button until the user makes a guess.
+          if (isMyTurn && phase === "draw") {
+            this.hasMadeFirstCorrectGuess = false;
+          }
+          // During guess-phase: keep End Turn disabled until the player has guessed correctly at least once
+          if (isMyTurn && phase === "guess") {
+            endBtn.disabled = !this.hasMadeFirstCorrectGuess;
+          }
 
           // Handle drawn card placement UI
           if (this.drawnCard && phase === "place") {
@@ -1031,27 +1042,31 @@
           const currentHand =
             this.gameState.playerHands[this.playerIndex] || [];
           const isJoker = this.drawnCard.value === "joker";
-
           if (!this.cardPlacementPosition) {
-            this.cardPlacementPosition = isJoker
-              ? 0
-              : this.getFixedPosition(this.drawnCard, currentHand);
+            // No default for joker; only non-joker gets a default
+            if (!isJoker) {
+              this.cardPlacementPosition = this.getFixedPosition(
+                this.drawnCard,
+                currentHand,
+              );
+            } else {
+              this.cardPlacementPosition = null;
+            }
           }
 
           container.innerHTML = `
-                          <div style="font-weight: bold; margin-bottom: 10px;">Drawn Card</div>
-                          <div class="card ${this.drawnCard.color}" style="margin: 0 auto 10px; display: inline-block;">${this.formatCardValue(this.drawnCard)}</div>
-                          ${
-                            isJoker
-                              ? `
-                              <div>Choose position with arrows, then click confirm</div>
-                          `
-                              : `
-                              <div>Card will be placed in correct position</div>
-                          `
-                          }
-                          <button class="btn" id="confirmPlaceBtn" style="margin-top: 10px;">Confirm Placement</button>
-                      `;
+  <div style="font-weight: bold; margin-bottom: 10px;">Drawn Card</div>
+  <div class="card ${this.drawnCard.color}" style="display: inline-block;">
+    ${this.formatCardValue(this.drawnCard)}
+  </div>
+  ${
+    isJoker
+      ? `<div>Choose position with arrows, then click confirm</div>`
+      : `<div>Card will be placed in correct position</div>`
+  }
+  <!-- Confirm starts disabled; will be enabled only once an arrow is clicked -->
+  <button class="btn" id="confirmPlaceBtn" style="margin-top: 10px;" disabled>Confirm Placement</button>
+`;
 
           controlPanel.insertBefore(container, controlPanel.firstChild);
 
@@ -1066,26 +1081,28 @@
           const myHandElement = document.getElementById("playerHand0");
           const currentHand =
             this.gameState.playerHands[this.playerIndex] || [];
-          const isJoker = this.drawnCard.value === "joker";
 
-          // Remove existing arrows
+          // Remove any existing arrows first
           const existingArrows =
             myHandElement.querySelectorAll(".placement-arrow");
           existingArrows.forEach((arrow) => arrow.remove());
 
-          if (isJoker) {
-            // Show arrows at all possible positions for joker
-            for (let i = 0; i <= currentHand.length; i++) {
-              this.createArrowAtPosition(myHandElement, i, currentHand.length);
-            }
-          } else {
-            // Show single arrow at fixed position for non-joker
-            const position = this.getFixedPosition(this.drawnCard, currentHand);
-            this.createArrowAtPosition(
-              myHandElement,
-              position,
-              currentHand.length,
-            );
+          // Compute ALL valid insertion indices (joker-skipped logic included)
+          const positions = this.getPossiblePlacements(
+            this.drawnCard,
+            currentHand,
+          );
+          positions.forEach((pos) => {
+            this.createArrowAtPosition(myHandElement, pos, currentHand.length);
+          });
+
+          // If there's exactly one placement possible, pre-select it and enable Confirm
+          if (positions.length === 1) {
+            this.cardPlacementPosition = positions[0];
+            // Highlight that single arrow visually:
+            this.updateArrowSelection();
+            // Enable the button right away
+            document.getElementById("confirmPlaceBtn").disabled = false;
           }
         }
 
@@ -1094,25 +1111,24 @@
           arrow.className = "placement-arrow";
           arrow.innerHTML = "▼";
           arrow.style.cssText = `
-              position: absolute;
-              top: -25px;
-              color: #ffd700;
-              font-size: 20px;
-              font-weight: bold;
-              cursor: ${this.drawnCard.value === "joker" ? "pointer" : "default"};
-              z-index: 30;
-              text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-          `;
+    position: absolute;
+    top: -20px;
+    font-size: 20px;
+    color: gold;
+    z-index: 30;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    cursor: pointer; /* every arrow is clickable */
+  `;
 
-          if (this.drawnCard.value === "joker") {
-            arrow.style.cursor = "pointer";
-            arrow.addEventListener("click", () => {
-              this.cardPlacementPosition = position;
-              this.updateArrowSelection();
-            });
-          }
+          // Every arrow sets the cardPlacementPosition and enables Confirm
+          arrow.addEventListener("click", () => {
+            this.cardPlacementPosition = position;
+            this.updateArrowSelection();
+            // Once an arrow is clicked, un-disable the Confirm button
+            document.getElementById("confirmPlaceBtn").disabled = false;
+          });
 
-          // Position the arrow
+          // Position the arrow above the correct slot in the hand
           const cards = handElement.querySelectorAll(
             ".card:not(.placement-arrow)",
           );
@@ -1126,7 +1142,7 @@
             const lastCard = cards[cards.length - 1];
             arrow.style.right = "-25px";
           } else {
-            const cardWidth = 68; // 60px + 8px gap
+            const cardWidth = 68; // card width + margin total
             arrow.style.left = `${position * cardWidth - 15}px`;
           }
 
@@ -1209,6 +1225,107 @@
           }
         }
 
+        getPossiblePlacements(card, currentHand) {
+          const placements = [];
+          const isJokerCard = card.value === "joker";
+
+          // 1) If drawn card is a joker → can go anywhere 0..hand.length
+          if (isJokerCard) {
+            for (let i = 0; i <= currentHand.length; i++) {
+              placements.push(i);
+            }
+            return placements;
+          }
+
+          // 2) Non-joker: check each slot i = 0..hand.length
+          for (let i = 0; i <= currentHand.length; i++) {
+            // --- CASE A: i === 0 (front of the hand) ---
+            if (i === 0) {
+              const rightCard = currentHand[0];
+              // Can only place at front if:
+              //   a) the right neighbor is a joker, OR
+              //   b) drawn.value < right.value, OR
+              //   c) drawn.value == right.value AND drawn is black & right is white
+              if (
+                rightCard.value === "joker" ||
+                card.value < rightCard.value ||
+                (card.value === rightCard.value &&
+                  card.color === "black" &&
+                  rightCard.color === "white")
+              ) {
+                placements.push(i);
+              }
+              continue;
+            }
+
+            // --- CASE B: i === hand.length (end of the hand) ---
+            if (i === currentHand.length) {
+              const leftCard = currentHand[i - 1];
+              // Can only place at the end if:
+              //   a) left neighbor is a joker, OR
+              //   b) drawn.value > left.value, OR
+              //   c) drawn.value == left.value AND drawn is white & left is black
+              if (
+                leftCard.value === "joker" ||
+                card.value > leftCard.value ||
+                (card.value === leftCard.value &&
+                  card.color === "white" &&
+                  leftCard.color === "black")
+              ) {
+                placements.push(i);
+              }
+              continue;
+            }
+
+            // --- CASE C: middle of the hand (0 < i < hand.length) ---
+            const leftCard = currentHand[i - 1];
+            const rightCard = currentHand[i];
+            const leftIsJoker = leftCard.value === "joker";
+            const rightIsJoker = rightCard.value === "joker";
+
+            //  a) If either neighbor is a joker, that split is always valid
+            if (leftIsJoker || rightIsJoker) {
+              placements.push(i);
+              continue;
+            }
+
+            //  b) Now both neighbors are non-joker. Compare numeric value & color
+            const leftVal = leftCard.value;
+            const rightVal = rightCard.value;
+
+            //    i) Strictly between leftVal and rightVal?
+            if (card.value > leftVal && card.value < rightVal) {
+              placements.push(i);
+              continue;
+            }
+
+            //    ii) Equal to leftVal: allow if black < white ordering
+            if (
+              card.value === leftVal &&
+              card.color === "black" &&
+              leftCard.color === "white"
+            ) {
+              placements.push(i);
+              continue;
+            }
+
+            //    iii) Equal to rightVal: allow if white > black ordering
+            if (
+              card.value === rightVal &&
+              card.color === "white" &&
+              rightCard.color === "black"
+            ) {
+              placements.push(i);
+              continue;
+            }
+
+            //    (Otherwise, it doesn’t fit here.)
+          }
+
+          // Deduplicate & sort (should be already unique, but just in case)
+          return Array.from(new Set(placements)).sort((a, b) => a - b);
+        }
+
         getFixedPosition(card, currentHand) {
           // Calculate where a non-joker card should be placed
           let position = 0;
@@ -1237,6 +1354,57 @@
             this.drawnCard = null;
             this.hideCardPlacementUI();
           }
+        }
+
+        getPossiblePlacements(card, currentHand) {
+          const placements = [];
+          const isJokerCard = card.value === "joker";
+
+          // 1) If drawn card is a Joker → it can legally go in any slot 0..hand.length
+          if (isJokerCard) {
+            for (let i = 0; i <= currentHand.length; i++) {
+              placements.push(i);
+            }
+            return placements;
+          }
+
+          // Helper: convert a non-joker card to a single numeric key:
+          //   key = value + 0.5 if white, or value + 0.0 if black.
+          function cardKey(c) {
+            return c.value + (c.color === "white" ? 0.5 : 0.0);
+          }
+          const drawnKey = cardKey(card);
+
+          // 2) For each slot i = 0..hand.length, determine leftKey and rightKey by scanning
+          //    past any adjacent jokers until we hit a non-joker (or the end-of-hand).
+          for (let i = 0; i <= currentHand.length; i++) {
+            let leftKey = Number.NEGATIVE_INFINITY;
+            let rightKey = Number.POSITIVE_INFINITY;
+
+            // --- Find the nearest non-joker to the LEFT of i ---
+            for (let j = i - 1; j >= 0; j--) {
+              if (currentHand[j].value !== "joker") {
+                leftKey = cardKey(currentHand[j]);
+                break;
+              }
+            }
+
+            // --- Find the nearest non-joker to the RIGHT of i ---
+            for (let k = i; k < currentHand.length; k++) {
+              if (currentHand[k].value !== "joker") {
+                rightKey = cardKey(currentHand[k]);
+                break;
+              }
+            }
+
+            // 3) Only allow slot i if drawnKey sits strictly between (leftKey, rightKey)
+            if (drawnKey > leftKey && drawnKey < rightKey) {
+              placements.push(i);
+            }
+          }
+
+          // 4) Deduplicate (just in case) and sort ascending
+          return Array.from(new Set(placements)).sort((a, b) => a - b);
         }
       }
 
