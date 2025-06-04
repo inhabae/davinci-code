@@ -19,7 +19,7 @@
         }
 
         .game-container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -116,7 +116,7 @@
             background: #1a5d1a;
             border-radius: 30px;
             padding: 30px;
-            min-height: 600px;
+            min-height: 700px;
             position: relative;
             border: 8px solid #8B4513;
             box-shadow: inset 0 0 50px rgba(0,0,0,0.3);
@@ -129,18 +129,18 @@
         /* Player areas */
         .player-area {
             position: absolute;
-            width: 100%;
+            width: calc(100% - 60px);
             height: 120px;
         }
 
         .player-area.top {
             top: 20px;
-            left: 0;
+            left: 30px;
         }
 
         .player-area.bottom {
             bottom: 20px;
-            left: 0;
+            left: 30px;
         }
 
         .player-name {
@@ -159,22 +159,22 @@
             height: 80px;
         }
 
-        /* Pile area */
+        /* Pile area - Changed to 6 columns */
         .pile-area {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 400px;
-            height: 200px;
+            width: 500px;
+            height: 250px;
         }
 
         .pile-container {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 8px;
             width: 100%;
-            height: 160px;
+            height: 200px;
         }
 
         .pile-extra {
@@ -206,9 +206,14 @@
         }
 
         /* Tile colors and states */
-        .tile.face-down {
-            background: linear-gradient(135deg, #8B4513, #A0522D);
-            color: #654321;
+        .tile.face-down-white {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            color: #999;
+        }
+
+        .tile.face-down-black {
+            background: linear-gradient(135deg, #343a40, #495057);
+            color: #888;
         }
 
         .tile.white {
@@ -227,11 +232,27 @@
             border-color: #f39c12;
         }
 
+        .tile.hidden {
+            background: linear-gradient(135deg, #666, #888);
+            color: #444;
+        }
+
         /* Hand tiles are smaller */
         .hand .tile {
             width: 50px;
             height: 70px;
             font-size: 1rem;
+        }
+
+        /* Setup phase styles */
+        .tile.selectable {
+            border-color: #f39c12 !important;
+            border-width: 3px;
+        }
+
+        .tile.selectable:hover {
+            border-color: #e67e22 !important;
+            transform: translateY(-5px);
         }
 
         /* Status area */
@@ -248,6 +269,14 @@
         .status-item {
             margin: 5px 0;
             font-size: 0.9rem;
+        }
+
+        .turn-indicator {
+            background: rgba(255, 193, 7, 0.8);
+            color: #000;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
         }
 
         /* Spectator area */
@@ -276,6 +305,20 @@
             margin: 3px 0;
         }
 
+        /* Setup instructions */
+        .setup-instructions {
+            position: absolute;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 15px 25px;
+            border-radius: 15px;
+            text-align: center;
+            font-size: 1rem;
+            color: #fff;
+        }
+
         /* Responsive design */
         @media (max-width: 768px) {
             .game-container {
@@ -296,12 +339,12 @@
             }
             
             .pile-area {
-                width: 300px;
-                height: 150px;
+                width: 350px;
+                height: 200px;
             }
             
             .pile-container {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(5, 1fr);
                 gap: 5px;
             }
             
@@ -336,10 +379,25 @@
         .connection-status.disconnected {
             background: rgba(231, 76, 60, 0.8);
         }
+
+        /* Error message */
+        .error-message {
+            position: fixed;
+            top: 50px;
+            right: 10px;
+            background: rgba(231, 76, 60, 0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div class="connection-status" id="connectionStatus">Connecting...</div>
+    <div class="error-message" id="errorMessage"></div>
     
     <div class="game-container">
         <h1 class="title">🎮 Board Game</h1>
@@ -373,15 +431,15 @@
 
         <!-- Game Table Section -->
         <div class="game-table" id="gameTable">
-            <!-- Top Player Area -->
+            <!-- Top Player Area (Opponent) -->
             <div class="player-area top">
-                <div class="player-name" id="topPlayerName">Player 1</div>
+                <div class="player-name" id="topPlayerName">Opponent</div>
                 <div class="hand" id="topPlayerHand"></div>
             </div>
             
-            <!-- Bottom Player Area -->
+            <!-- Bottom Player Area (You) -->
             <div class="player-area bottom">
-                <div class="player-name" id="bottomPlayerName">Player 2</div>
+                <div class="player-name" id="bottomPlayerName">You</div>
                 <div class="hand" id="bottomPlayerHand"></div>
             </div>
             
@@ -391,11 +449,17 @@
                 <div class="pile-extra" id="pileExtra"></div>
             </div>
             
+            <!-- Setup Instructions -->
+            <div class="setup-instructions" id="setupInstructions" style="display: none;">
+                <div id="setupText">Select a tile from the pile</div>
+            </div>
+            
             <!-- Status Area -->
             <div class="status-area">
                 <div class="status-item"><strong>Game Status</strong></div>
                 <div class="status-item" id="gameStatus">Game in progress</div>
                 <div class="status-item">Cards in pile: <span id="pileCount">26</span></div>
+                <div class="status-item" id="turnIndicator"></div>
             </div>
             
             <!-- Spectator Area -->
@@ -418,9 +482,12 @@
             players: [],
             spectators: [],
             gameStarted: false,
+            setupPhase: false,
+            currentTurn: 0,
             pile: [],
             hands: [[], []],
-            seatedCount: 0
+            seatedCount: 0,
+            myPlayerIndex: -1
         };
 
         // Generate unique player ID
@@ -434,11 +501,13 @@
 
         // DOM Elements
         const connectionStatus = document.getElementById('connectionStatus');
+        const errorMessage = document.getElementById('errorMessage');
         const lobby = document.getElementById('lobby');
         const gameTable = document.getElementById('gameTable');
         const playerNameInput = document.getElementById('playerName');
         const sitBtn = document.getElementById('sitBtn');
         const startBtn = document.getElementById('startBtn');
+        const setupInstructions = document.getElementById('setupInstructions');
 
         // Socket event handlers
         socket.on('connect', () => {
