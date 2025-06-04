@@ -164,7 +164,7 @@ shuffleArray(array) {
     return allValues.filter(val => !usedValues.includes(val));
   }
 
-  drawCard(playerId) {
+  drawCard(playerId, cardIndex = null) {
     if (this.gameState !== 'playing') return null;
     
     const playerIndex = this.players.findIndex(p => p.id === playerId);
@@ -172,7 +172,12 @@ shuffleArray(array) {
     if (this.turnPhase !== 'draw') return null;
     if (this.communityPile.length === 0) return null;
 
-    const drawnCard = this.communityPile.pop();
+    // If specific card index provided, use it (bounded by available cards)
+    const actualIndex = cardIndex !== null ? 
+        Math.min(cardIndex, this.communityPile.length - 1) : 
+        this.communityPile.length - 1;
+    
+    const drawnCard = this.communityPile.splice(actualIndex, 1)[0];
     
     // Assign value if not joker
     if (drawnCard.value !== 'joker') {
@@ -352,8 +357,8 @@ io.on('connection', (socket) => {
     });
 
   // Draw card
-  socket.on('drawCard', () => {
-    const drawnCard = gameRoom.drawCard(socket.id);
+  socket.on('selectCardFromPile', (data) => {
+    const drawnCard = gameRoom.drawCard(socket.id, data.cardIndex);
     
     if (drawnCard) {
       socket.emit('cardDrawn', { card: drawnCard });

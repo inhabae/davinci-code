@@ -449,8 +449,7 @@
 
                 <div id="gameControls" class="control-section hidden">
                     <div class="control-title">Actions</div>
-                    <button id="drawCardBtn" class="btn hidden">Draw Card</button>
-                    <button id="placeCardBtn" class="btn hidden" disabled>Place Card</button>
+                    <div id="drawCardInstruction" class="hidden">Click a card from the community pile to draw it</div>
                     <button id="endTurnBtn" class="btn hidden">End Turn</button>
 
                     <div id="guessControls" class="hidden">
@@ -502,7 +501,6 @@
 
                 // Game controls
                 document.getElementById('addToHandBtn').addEventListener('click', () => this.addToHand());
-                document.getElementById('drawCardBtn').addEventListener('click', () => this.drawCard());
                 document.getElementById('placeCardBtn').addEventListener('click', () => this.placeCard());
                 document.getElementById('submitGuessBtn').addEventListener('click', () => this.submitGuess());
                 document.getElementById('endTurnBtn').addEventListener('click', () => this.endTurn());
@@ -583,8 +581,8 @@
                 }
             }
 
-            drawCard() {
-                this.socket.emit('drawCard');
+            selectCardFromPile(cardIndex) {
+                this.socket.emit('selectCardFromPile', { cardIndex });
             }
 
             placeCard() {
@@ -720,12 +718,21 @@
                         pile.appendChild(card);
                     }
                 } else {
-                    // Show remaining pile size during game
+                    // Show selectable cards during game
                     for (let i = 0; i < Math.min(this.gameState.communityPileSize, 20); i++) {
                         const card = document.createElement('div');
                         card.className = 'card community-card';
                         card.style.background = i % 2 === 0 ? 'white' : '#333';
                         card.textContent = '?';
+                        
+                        // Make cards clickable during draw phase
+                        if (this.gameState.gameState === 'playing' && 
+                            this.gameState.turnPhase === 'draw' && 
+                            this.playerIndex === this.gameState.currentPlayer) {
+                            card.style.cursor = 'pointer';
+                            card.addEventListener('click', () => this.selectCardFromPile(i));
+                        }
+                        
                         pile.appendChild(card);
                     }
                 }
@@ -767,6 +774,9 @@
                 if (isHidden) {
                     cardElement.classList.add('hidden');
                     cardElement.textContent = '?';
+                    // Show card back with correct color but hidden value
+                    cardElement.style.background = card.color === 'white' ? 'white' : '#333';
+                    cardElement.style.color = card.color === 'white' ? '#999' : '#666';
                 } else {
                     cardElement.textContent = this.formatCardValue(card);
                 }
@@ -833,20 +843,24 @@
                 turnPhaseElement.textContent = phaseText[this.gameState.turnPhase] || '';
             }
 
+            
             updateGameControls() {
                 const isMyTurn = this.playerIndex === this.gameState.currentPlayer;
                 const phase = this.gameState.turnPhase;
 
-                // Show/hide buttons based on turn and phase
-                document.getElementById('drawCardBtn').classList.toggle('hidden', !isMyTurn || phase !== 'draw');
-                document.getElementById('placeCardBtn').classList.toggle('hidden', !isMyTurn || phase !== 'place');
+                // Show/hide elements based on turn and phase
+                document.getElementById('drawCardInstruction').classList.toggle('hidden', !isMyTurn || phase !== 'draw');
                 document.getElementById('guessControls').classList.toggle('hidden', !isMyTurn || phase !== 'guess');
                 document.getElementById('endTurnBtn').classList.toggle('hidden', !isMyTurn || phase !== 'guess');
-
-                // Update place button state
-                const placeBtn = document.getElementById('placeCardBtn');
-                placeBtn.disabled = !this.drawnCard;
+                
+                // Handle drawn card placement UI
+                if (this.drawnCard && phase === 'place') {
+                    this.showCardPlacementUI();
+                } else {
+                    this.hideCardPlacementUI();
+                }
             }
+
 
             updateOpponentCardSelection() {
                 // Visual feedback for selected opponent card
@@ -885,6 +899,125 @@
                 document.getElementById('gameOverlay').style.display = 'none';
                 document.getElementById('lobbyScreen').style.display = 'flex';
                 document.getElementById('gameTable').style.display = 'none';
+            }
+
+            showCardPlacementUI() {
+                if (document.getElementById('drawnCardContainer')) return;
+                
+                const container = document.createElement('div');
+                container.id = 'drawnCardContainer';
+                container.className = 'drawn-card-container';
+                
+                const currentHand = this.gameState.playerHands[this.playerIndex] || [];
+                const isJoker = this.drawnCard.value === 'joker';
+                
+                if (!this.cardPlacementPosition) {
+                    this.cardPlacementPosition = isJoker ? 0 : this.getFixedPosition(this.drawnCard, currentHand);
+                }
+                
+                container.innerHTML = `
+                    <h3>Place Your Card</h3>
+                    <div class="placement-preview">
+                        <div class="card ${this.drawnCard.color}">${this.formatCardValue(this.drawnCard)}</div>
+                    </div>
+                    ${isJoker ? `
+                        <div class="arrow-controls">
+                            <button class="arrow-btn" id="moveLeftBtn">◀</button>
+                            <button class="arrow-btn" id="moveRightBtn">▶</button>
+                        </div>
+                        <div>Position: ${this.cardPlacementPosition + 1} of ${currentHand.length + 1}</div>
+                    ` : `
+                        <div>Fixed position in hand</div>
+                    `}
+                    <div class="arrow-controls">
+                        <button class="arrow-btn" id="confirmPlaceBtn">▼ Confirm</button>
+                    </div>
+                `;
+                
+                document.body.appendChild(container);
+                
+                if (isJoker) {
+                    document.getElementById('moveLeftBtn').addEventListener('click', () => this.moveCardPosition(-1));
+                    document.getElementById('moveRightBtn').addEventListener('click', () => this.moveCardPosition(1));
+                }
+                
+                document.getElementById('confirmPlaceBtn').addEventListener('click', () => this.confirmCardPlacement());
+                
+                this.updatePlacementPreview();
+            }
+
+            hideCardPlacementUI() {
+                const container = document.getElementById('drawnCardContainer');
+                if (container) {
+                    container.remove();
+                }
+                this.cardPlacementPosition = null;
+            }
+
+            moveCardPosition(direction) {
+                const currentHand = this.gameState.playerHands[this.playerIndex] || [];
+                const maxPosition = currentHand.length;
+                
+                this.cardPlacementPosition = Math.max(0, Math.min(maxPosition, this.cardPlacementPosition + direction));
+                
+                document.getElementById('moveLeftBtn').disabled = this.cardPlacementPosition === 0;
+                document.getElementById('moveRightBtn').disabled = this.cardPlacementPosition === maxPosition;
+                
+                // Update position display
+                const positionText = document.querySelector('#drawnCardContainer div:last-of-type');
+                if (positionText && positionText.textContent.includes('Position:')) {
+                    positionText.textContent = `Position: ${this.cardPlacementPosition + 1} of ${maxPosition + 1}`;
+                }
+                
+                this.updatePlacementPreview();
+            }
+
+            updatePlacementPreview() {
+                // Add visual indicator in the actual hand
+                const handElement = document.getElementById(`playerHand${this.playerIndex}`);
+                
+                // Remove existing indicators
+                const existingIndicators = handElement.querySelectorAll('.placement-indicator');
+                existingIndicators.forEach(indicator => indicator.remove());
+                
+                // Add new indicator
+                const indicator = document.createElement('div');
+                indicator.className = 'placement-indicator';
+                
+                const cards = handElement.querySelectorAll('.card');
+                if (this.cardPlacementPosition === 0) {
+                    handElement.insertBefore(indicator, cards[0] || null);
+                } else if (this.cardPlacementPosition >= cards.length) {
+                    handElement.appendChild(indicator);
+                } else {
+                    handElement.insertBefore(indicator, cards[this.cardPlacementPosition]);
+                }
+            }
+
+            getFixedPosition(card, currentHand) {
+                // Calculate where a non-joker card should be placed
+                let position = 0;
+                for (const handCard of currentHand) {
+                    if (handCard.value === 'joker') continue;
+                    
+                    if (card.value < handCard.value || 
+                        (card.value === handCard.value && card.color === 'black' && handCard.color === 'white')) {
+                        break;
+                    }
+                    position++;
+                }
+                return position;
+            }
+
+            confirmCardPlacement() {
+                if (this.drawnCard) {
+                    this.socket.emit('placeCard', { 
+                        card: this.drawnCard,
+                        position: this.cardPlacementPosition
+                    });
+                    this.drawnCard = null;
+                    this.hideCardPlacementUI();
+                }
             }
         }
 
