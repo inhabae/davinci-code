@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Board Game</title>
+    <title>Da Vinci Code Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <style>
         * {
             margin: 0;
@@ -13,787 +14,879 @@
 
         body {
             font-family: 'Arial', sans-serif;
-            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         .game-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .title {
-            text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 30px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-        .tile.selectable {
-            border-color: #f39c12 !important;
-            border-width: 3px;
-            cursor: pointer;
-        }
-
-        .tile.selectable:hover {
-            border-color: #e67e22 !important;
-            transform: translateY(-5px);
-        }
-
-        .tile.selected {
-            border-color: #27ae60 !important;
-            border-width: 3px;
-            background: rgba(46, 204, 113, 0.3) !important;
+            width: 100%;
+            max-width: 1200px;
+            height: 800px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            overflow: hidden;
+            position: relative;
         }
 
         /* Lobby Styles */
-        .lobby {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 40px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            text-align: center;
-        }
-
-        .player-info {
-            margin-bottom: 20px;
-        }
-
-        .input-group {
-            margin: 20px 0;
+        .lobby-screen {
             display: flex;
-            gap: 10px;
+            flex-direction: column;
             justify-content: center;
-            flex-wrap: wrap;
+            align-items: center;
+            height: 100%;
+            padding: 40px;
         }
 
-        .input-group input {
-            padding: 10px 15px;
-            border: none;
-            border-radius: 25px;
-            background: rgba(255, 255, 255, 0.9);
+        .lobby-title {
+            font-size: 3rem;
             color: #333;
-            font-size: 1rem;
+            margin-bottom: 40px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .player-list {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .player-slot {
+            background: #f0f0f0;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
             min-width: 200px;
+            border: 2px solid #ddd;
+        }
+
+        .player-slot.ready {
+            background: #d4edda;
+            border-color: #28a745;
+        }
+
+        .name-input {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 20px;
+            width: 250px;
         }
 
         .btn {
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            border: none;
+            background: #667eea;
             color: white;
+            border: none;
             padding: 15px 30px;
-            font-size: 1.1rem;
-            border-radius: 25px;
+            border-radius: 8px;
+            font-size: 16px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
             margin: 5px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
 
-        .btn:hover:not(:disabled) {
+        .btn:hover {
+            background: #5a6fd8;
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
         }
 
         .btn:disabled {
-            background: #666;
+            background: #ccc;
             cursor: not-allowed;
             transform: none;
         }
 
         .btn.start-btn {
-            background: linear-gradient(45deg, #27ae60, #2ecc71);
+            background: #28a745;
+            font-size: 18px;
+            padding: 18px 40px;
         }
 
-        .players-list, .spectators-list {
-            margin: 15px 0;
-        }
-
-        .player-item, .spectator-item {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.2);
-            padding: 8px 15px;
-            margin: 5px;
-            border-radius: 15px;
-            border: 2px solid transparent;
-        }
-
-        .player-item.seated {
-            background: rgba(46, 204, 113, 0.3);
-            border-color: #2ecc71;
+        .btn.start-btn:hover {
+            background: #218838;
         }
 
         /* Game Table Styles */
         .game-table {
             display: none;
-            background: #1a5d1a;
-            border-radius: 30px;
-            padding: 30px;
-            min-height: 700px;
+            background: #2d5a27;
+            height: 100%;
             position: relative;
-            border: 8px solid #8B4513;
-            box-shadow: inset 0 0 50px rgba(0,0,0,0.3);
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(120, 200, 120, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(120, 200, 120, 0.3) 0%, transparent 50%);
         }
 
-        .game-table.active {
-            display: block;
-        }
-
-        /* Player areas */
-        .player-area {
+        .game-info {
             position: absolute;
-            width: calc(100% - 60px);
-            height: 120px;
-        }
-
-        .player-area.top {
             top: 20px;
-            left: 30px;
+            left: 20px;
+            background: rgba(255,255,255,0.9);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
         }
 
-        .player-area.bottom {
-            bottom: 20px;
-            left: 30px;
-        }
-
-        .player-name {
-            text-align: center;
-            font-size: 1.2rem;
+        .current-turn {
             font-weight: bold;
-            margin-bottom: 10px;
-            color: #fff;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            color: #28a745;
+            margin-bottom: 5px;
         }
 
-        .hand {
-            display: flex;
-            justify-content: center;
-            gap: 5px;
-            height: 80px;
+        .turn-phase {
+            color: #666;
+            font-style: italic;
         }
 
-        /* Pile area - Changed to 6 columns */
-        .pile-area {
+        /* Community Pile */
+        .community-pile {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 500px;
-            height: 250px;
-        }
-
-        .pile-container {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 8px;
-            width: 100%;
-            height: 200px;
-        }
-
-        .pile-extra {
             display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            max-width: 400px;
             justify-content: center;
-            margin-top: 10px;
+            z-index: 10;
         }
 
-        /* Tile styles */
-        .tile {
+        /* Player Hands */
+        .player-hand {
+            position: absolute;
+            display: flex;
+            gap: 8px;
+            z-index: 20;
+        }
+
+        .player-hand.player-0 {
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .player-hand.player-1 {
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .player-label {
+            position: absolute;
+            background: rgba(255,255,255,0.9);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .player-hand.player-0 .player-label {
+            bottom: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .player-hand.player-1 .player-label {
+            top: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* Card Styles */
+        .card {
             width: 60px;
-            height: 80px;
+            height: 90px;
             border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 1.1rem;
+            font-size: 16px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            position: relative;
+            transition: all 0.3s;
             border: 2px solid #333;
-            box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .card.white {
+            background: white;
+            color: #333;
+        }
+
+        .card.black {
+            background: #333;
+            color: white;
+        }
+
+        .card.hidden {
             position: relative;
         }
 
-        .tile:hover {
-            transform: translateY(-3px);
-            box-shadow: 2px 5px 12px rgba(0,0,0,0.4);
+        .card.hidden::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(128, 128, 128, 0.6);
+            border-radius: 6px;
         }
 
-        /* Tile colors and states */
-        .tile.face-down.white {
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-            color: #999;
+        .card.selected {
+            border-color: #ffd700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.7);
+            transform: translateY(-10px);
         }
 
-        .tile.face-down.black {
-            background: linear-gradient(135deg, #343a40, #495057);
-            color: #888;
+        .card.revealed {
+            border-color: #dc3545;
+            box-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
         }
 
-        .tile.white {
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-            color: #333;
-        }
-
-        .tile.black {
-            background: linear-gradient(135deg, #343a40, #495057);
-            color: #fff;
-        }
-
-        .tile.joker {
-            background: linear-gradient(135deg, #ffd700, #ffed4e);
-            color: #333;
-            border-color: #f39c12;
-        }
-
-        .tile.hidden {
-            background: linear-gradient(135deg, #666, #888);
-            color: #444;
-        }
-
-        /* Hand tiles are smaller */
-        .hand .tile {
+        .community-card {
             width: 50px;
-            height: 70px;
-            font-size: 1rem;
+            height: 75px;
+            font-size: 12px;
         }
 
-        /* Setup phase styles */
-        .tile.selectable {
-            border-color: #f39c12 !important;
-            border-width: 3px;
-        }
-
-        .tile.selectable:hover {
-            border-color: #e67e22 !important;
-            transform: translateY(-5px);
-        }
-
-        /* Status area */
-        .status-area {
+        /* Control Panel */
+        .control-panel {
             position: absolute;
-            top: 10px;
+            bottom: 20px;
             right: 20px;
-            background: rgba(0,0,0,0.5);
-            padding: 15px;
-            border-radius: 10px;
-            min-width: 200px;
+            background: rgba(255,255,255,0.95);
+            padding: 20px;
+            border-radius: 15px;
+            min-width: 250px;
+            z-index: 100;
         }
 
-        .status-item {
-            margin: 5px 0;
-            font-size: 0.9rem;
+        .control-section {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
         }
 
-        .turn-indicator {
-            background: rgba(255, 193, 7, 0.8);
-            color: #000;
-            padding: 5px 10px;
-            border-radius: 5px;
+        .control-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .control-title {
             font-weight: bold;
-        }
-
-        /* Spectator area */
-        .spectator-area {
-            position: absolute;
-            left: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: rgba(0,0,0,0.3);
-            padding: 15px;
-            border-radius: 10px;
-            max-width: 150px;
-        }
-
-        .spectator-title {
-            font-size: 0.9rem;
             margin-bottom: 10px;
-            font-weight: bold;
+            color: #333;
         }
 
-        .spectator-list {
-            font-size: 0.8rem;
+        .guess-input {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 10px 0;
         }
 
-        .spectator-list div {
-            margin: 3px 0;
+        .guess-input input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
 
-        /* Setup instructions */
-        .setup-instructions {
+        .selected-count {
+            color: #666;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+
+        /* Game Over Overlay */
+        .game-over-overlay {
+            display: none;
             position: absolute;
-            bottom: 150px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background: rgba(0,0,0,0.7);
-            padding: 15px 25px;
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .game-over-content {
+            background: white;
+            padding: 40px;
             border-radius: 15px;
             text-align: center;
-            font-size: 1rem;
-            color: #fff;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
         }
 
-        /* Responsive design */
+        .winner-text {
+            font-size: 2rem;
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+
+        .message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.95);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 200;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Responsive Design */
         @media (max-width: 768px) {
             .game-container {
-                padding: 10px;
+                height: 100vh;
+                max-width: 100%;
+                border-radius: 0;
             }
-            
-            .title {
+
+            .lobby-title {
                 font-size: 2rem;
             }
-            
-            .lobby {
-                padding: 20px;
-            }
-            
-            .input-group {
+
+            .player-list {
                 flex-direction: column;
-                align-items: center;
             }
-            
-            .pile-area {
-                width: 350px;
-                height: 200px;
-            }
-            
-            .pile-container {
-                grid-template-columns: repeat(5, 1fr);
-                gap: 5px;
-            }
-            
-            .tile {
+
+            .card {
                 width: 45px;
-                height: 60px;
-                font-size: 0.9rem;
+                height: 68px;
+                font-size: 12px;
             }
-            
-            .hand .tile {
-                width: 40px;
-                height: 55px;
-                font-size: 0.8rem;
+
+            .community-card {
+                width: 35px;
+                height: 53px;
+                font-size: 10px;
             }
-        }
 
-        /* Connection status */
-        .connection-status {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 0.8rem;
-            z-index: 1000;
-        }
-
-        .connection-status.connected {
-            background: rgba(39, 174, 96, 0.8);
-        }
-
-        .connection-status.disconnected {
-            background: rgba(231, 76, 60, 0.8);
-        }
-
-        /* Error message */
-        .error-message {
-            position: fixed;
-            top: 50px;
-            right: 10px;
-            background: rgba(231, 76, 60, 0.9);
-            color: white;
-            padding: 10px 15px;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            z-index: 1000;
-            display: none;
+            .control-panel {
+                bottom: 10px;
+                right: 10px;
+                left: 10px;
+                min-width: auto;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="connection-status" id="connectionStatus">Connecting...</div>
-    <div class="error-message" id="errorMessage"></div>
-    
     <div class="game-container">
-        <h1 class="title">🎮 Board Game</h1>
-        
-        <!-- Lobby Section -->
-        <div class="lobby" id="lobby">
-            <div class="player-info">
-                <div id="playerCount">Players: 0/2</div>
-                <div id="spectatorCount">Spectators: 0</div>
-            </div>
+        <!-- Lobby Screen -->
+        <div id="lobbyScreen" class="lobby-screen">
+            <h1 class="lobby-title">Da Vinci Code</h1>
             
-            <div class="input-group">
-                <input id="playerName" type="text" placeholder="Enter your name" maxlength="20">
+            <div class="player-list">
+                <div id="player0Slot" class="player-slot">
+                    <div class="player-name">Player 1</div>
+                    <div class="ready-status">Waiting...</div>
+                </div>
+                <div id="player1Slot" class="player-slot">
+                    <div class="player-name">Player 2</div>
+                    <div class="ready-status">Waiting...</div>
+                </div>
             </div>
-            
-            <div class="players-list">
-                <strong>Players:</strong>
-                <div id="playersList"></div>
+
+            <div id="joinControls">
+                <input type="text" id="playerNameInput" class="name-input" placeholder="Enter your name" maxlength="20">
+                <br>
+                <button id="sitDownBtn" class="btn">Sit Down</button>
+                <button id="startGameBtn" class="btn start-btn" disabled>Start Game</button>
             </div>
-            
-            <div class="spectators-list">
-                <strong>Spectators:</strong>
-                <div id="spectatorsList"></div>
-            </div>
-            
-            <div class="button-group">
-                <button id="sitBtn" class="btn">Sit Down</button>
-                <button id="startBtn" class="btn start-btn" disabled>Start Game</button>
+
+            <div id="gameInProgress" class="hidden">
+                <h2>Game in progress...</h2>
+                <p>Please wait for the current game to finish.</p>
             </div>
         </div>
 
-        <!-- Game Table Section -->
-        <div class="game-table" id="gameTable">
-            <!-- Top Player Area (Opponent) -->
-            <div class="player-area top">
-                <div class="player-name" id="topPlayerName">Opponent</div>
-                <div class="hand" id="topPlayerHand"></div>
+        <!-- Game Table -->
+        <div id="gameTable" class="game-table">
+            <div class="game-info">
+                <div id="currentTurn" class="current-turn"></div>
+                <div id="turnPhase" class="turn-phase"></div>
             </div>
-            
-            <!-- Bottom Player Area (You) -->
-            <div class="player-area bottom">
-                <div class="player-name" id="bottomPlayerName">You</div>
-                <div class="hand" id="bottomPlayerHand"></div>
+
+            <!-- Community Pile -->
+            <div id="communityPile" class="community-pile"></div>
+
+            <!-- Player Hands -->
+            <div id="playerHand0" class="player-hand player-0">
+                <div class="player-label"></div>
             </div>
-            
-            <!-- Pile Area (Center) -->
-            <div class="pile-area">
-                <div class="pile-container" id="pileContainer"></div>
-                <div class="pile-extra" id="pileExtra"></div>
+            <div id="playerHand1" class="player-hand player-1">
+                <div class="player-label"></div>
             </div>
-            
-            <!-- Setup Instructions -->
-            <div class="setup-instructions" id="setupInstructions" style="display: none;">
-                <div id="setupText">Select 4 tiles from the pile</div>
-                <button id="addToHandBtn" class="btn" disabled>Add to Hand</button>
-            </div>
-            
-            <!-- Status Area -->
-            <div class="status-area">
-                <div class="status-item"><strong>Game Status</strong></div>
-                <div class="status-item" id="gameStatus">Game in progress</div>
-                <div class="status-item">Cards in pile: <span id="pileCount">26</span></div>
-                <div class="status-item" id="turnIndicator"></div>
-            </div>
-            
-            <!-- Spectator Area -->
-            <div class="spectator-area" id="spectatorArea">
-                <div class="spectator-title">Spectators</div>
-                <div class="spectator-list" id="gameSpectatorsList"></div>
+
+            <!-- Control Panel -->
+            <div id="controlPanel" class="control-panel">
+                <div id="setupControls" class="control-section hidden">
+                    <div class="control-title">Select 4 Cards</div>
+                    <div id="selectedCount" class="selected-count">Selected: 0/4</div>
+                    <button id="addToHandBtn" class="btn" disabled>Add to Hand</button>
+                </div>
+
+                <div id="gameControls" class="control-section hidden">
+                    <div class="control-title">Actions</div>
+                    <button id="drawCardBtn" class="btn hidden">Draw Card</button>
+                    <button id="placeCardBtn" class="btn hidden" disabled>Place Card</button>
+                    <button id="endTurnBtn" class="btn hidden">End Turn</button>
+
+                    <div id="guessControls" class="hidden">
+                        <div class="control-title">Make a Guess</div>
+                        <div class="guess-input">
+                            <input type="number" id="guessValueInput" placeholder="Value (0-11 or -1 for joker)" min="-1" max="11">
+                            <button id="submitGuessBtn" class="btn">Guess</button>
+                        </div>
+                        <div>Click on opponent's card to select it</div>
+                    </div>
+                </div>
             </div>
         </div>
+
+        <!-- Game Over Overlay -->
+        <div id="gameOverlay" class="game-over-overlay">
+            <div class="game-over-content">
+                <div id="winnerText" class="winner-text"></div>
+                <button id="newGameBtn" class="btn start-btn">New Game</button>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="messageDiv" class="message hidden"></div>
     </div>
 
-    <!-- Socket.io client -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
-    
     <script>
-        // Configuration
-        const SERVER_URL = window.location.origin;
-        
-        // Game state
-        let gameState = {
-            players: [],
-            spectators: [],
-            gameStarted: false,
-            setupPhase: false,
-            currentSetupPlayer: 0,
-            selectedTiles: [[], []],
-            pile: [],
-            hands: [[], []],
-            seatedCount: 0,
-            myPlayerIndex: -1
-        };
-        // Generate unique player ID
-        const playerId = 'Player_' + Math.random().toString(36).substr(2, 9);
-        let playerRole = 'spectator'; // 'player' or 'spectator'
-        let isSeated = false;
-
-        // Socket connection
-        const socket = io(SERVER_URL);
-        let isConnected = false;
-
-        // DOM Elements
-        const connectionStatus = document.getElementById('connectionStatus');
-        const errorMessage = document.getElementById('errorMessage');
-        const lobby = document.getElementById('lobby');
-        const gameTable = document.getElementById('gameTable');
-        const playerNameInput = document.getElementById('playerName');
-        const sitBtn = document.getElementById('sitBtn');
-        const startBtn = document.getElementById('startBtn');
-        const setupInstructions = document.getElementById('setupInstructions');
-
-        // Socket event handlers
-        socket.on('connect', () => {
-            console.log('Connected to server');
-            isConnected = true;
-            updateConnectionStatus('Connected', true);
-            
-            // Join the game
-            const playerName = playerNameInput.value.trim() || `Player_${playerId.slice(-4)}`;
-            socket.emit('join-room', { playerId, playerName });
-        });
-
-        socket.on('disconnect', () => {
-            console.log('Disconnected from server');
-            isConnected = false;
-            updateConnectionStatus('Disconnected - Reconnecting...', false);
-        });
-
-        socket.on('room-update', (newGameState) => {
-            gameState = newGameState;
-            updateLobby();
-        });
-
-        socket.on('game-started', (newGameState) => {
-            gameState = newGameState;
-            startGameUI();
-        });
-
-        socket.on('game-update', (newGameState) => {
-            gameState = newGameState;
-            updateGameDisplay();
-        });
-
-        socket.on('error', (data) => {
-            showError(data.message);
-        });
-
-        // UI Functions
-        function updateConnectionStatus(status, connected) {
-            connectionStatus.textContent = status;
-            connectionStatus.className = `connection-status ${connected ? 'connected' : 'disconnected'}`;
-        }
-
-        function updateLobby() {
-            // Update player count
-            document.getElementById('playerCount').textContent = `Players: ${gameState.players.length}/2`;
-            document.getElementById('spectatorCount').textContent = `Spectators: ${gameState.spectators.length}`;
-            
-            // Update players list
-            const playersList = document.getElementById('playersList');
-            playersList.innerHTML = '';
-            gameState.players.forEach(player => {
-                const playerDiv = document.createElement('div');
-                playerDiv.className = `player-item ${player.seated ? 'seated' : ''}`;
-                playerDiv.textContent = player.name;
-                if (player.id === playerId) {
-                    playerDiv.textContent += ' (You)';
-                    playerRole = 'player';
-                    isSeated = player.seated;
-                }
-                playersList.appendChild(playerDiv);
-            });
-            
-            // Update spectators list
-            const spectatorsList = document.getElementById('spectatorsList');
-            spectatorsList.innerHTML = '';
-            gameState.spectators.forEach(spectator => {
-                const spectatorDiv = document.createElement('div');
-                spectatorDiv.className = 'spectator-item';
-                spectatorDiv.textContent = spectator.name;
-                if (spectator.id === playerId) {
-                    spectatorDiv.textContent += ' (You)';
-                    playerRole = 'spectator';
-                }
-                spectatorsList.appendChild(spectatorDiv);
-            });
-            
-            // Update buttons
-            if (playerRole === 'player') {
-                sitBtn.style.display = 'inline-block';
-                sitBtn.disabled = isSeated || gameState.gameStarted;
-                sitBtn.textContent = isSeated ? 'Seated' : 'Sit Down';
+        class DaVinciCodeClient {
+            constructor() {
+                this.socket = io();
+                this.playerId = null;
+                this.playerIndex = -1;
+                this.gameState = null;
+                this.selectedCards = [];
+                this.drawnCard = null;
+                this.selectedOpponentCard = -1;
                 
-                startBtn.disabled = !gameState.canStart || !isSeated;
-            } else {
-                sitBtn.style.display = 'none';
-                startBtn.disabled = true;
+                this.initializeEventListeners();
+                this.setupSocketEvents();
             }
-        }
 
-        function startGameUI() {
-            lobby.style.display = 'none';
-            gameTable.classList.add('active');
-            
-            updateGameDisplay();
-        }
+            initializeEventListeners() {
+                // Lobby controls
+                document.getElementById('sitDownBtn').addEventListener('click', () => this.sitDown());
+                document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
+                document.getElementById('playerNameInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.sitDown();
+                });
 
-        function updateGameDisplay() {
-            // Update player names
-            if (gameState.players.length >= 2) {
-                document.getElementById('topPlayerName').textContent = gameState.players[0].name;
-                document.getElementById('bottomPlayerName').textContent = gameState.players[1].name;
-                
-                // Update hands
-                updateHand('topPlayerHand', gameState.hands[0]);
-                updateHand('bottomPlayerHand', gameState.hands[1]);
-            }
-            
-            // Update pile
-            updatePile();
-            
-            // Update spectators in game
-            const gameSpectatorsList = document.getElementById('gameSpectatorsList');
-            gameSpectatorsList.innerHTML = '';
-            gameState.spectators.forEach(spectator => {
-                const spectatorDiv = document.createElement('div');
-                spectatorDiv.textContent = spectator.name;
-                gameSpectatorsList.appendChild(spectatorDiv);
-            });
-            
-            // Update pile count
-            document.getElementById('pileCount').textContent = gameState.pile.length;
-        }
+                // Game controls
+                document.getElementById('addToHandBtn').addEventListener('click', () => this.addToHand());
+                document.getElementById('drawCardBtn').addEventListener('click', () => this.drawCard());
+                document.getElementById('placeCardBtn').addEventListener('click', () => this.placeCard());
+                document.getElementById('submitGuessBtn').addEventListener('click', () => this.submitGuess());
+                document.getElementById('endTurnBtn').addEventListener('click', () => this.endTurn());
+                document.getElementById('newGameBtn').addEventListener('click', () => this.newGame());
 
-        function updateHand(handId, hand) {
-            const handContainer = document.getElementById(handId);
-            handContainer.innerHTML = '';
-            
-            hand.forEach(tile => {
-                const tileElement = createTileElement(tile);
-                handContainer.appendChild(tileElement);
-            });
-        }
-
-        function updatePile() {
-            const pileContainer = document.getElementById('pileContainer');
-            const pileExtra = document.getElementById('pileExtra');
-            const setupInstructions = document.getElementById('setupInstructions');
-            const addToHandBtn = document.getElementById('addToHandBtn');
-            
-            pileContainer.innerHTML = '';
-            pileExtra.innerHTML = '';
-            
-            const myIndex = getMyPlayerIndex();
-            const isMyTurn = gameState.setupPhase && myIndex === gameState.currentSetupPlayer;
-            
-            // Show/hide setup instructions
-            if (gameState.setupPhase) {
-                setupInstructions.style.display = 'block';
-                if (isMyTurn) {
-                    document.getElementById('setupText').textContent = `Select 4 tiles (${gameState.selectedTiles[myIndex].length}/4)`;
-                    addToHandBtn.disabled = gameState.selectedTiles[myIndex].length !== 4;
-                } else {
-                    document.getElementById('setupText').textContent = `${gameState.players[gameState.currentSetupPlayer]?.name}'s turn`;
-                    addToHandBtn.style.display = 'none';
-                }
-            } else {
-                setupInstructions.style.display = 'none';
-            }
-            
-            // Display first 25 tiles in 5x5 grid
-            for (let i = 0; i < Math.min(25, gameState.pile.length); i++) {
-                const tile = gameState.pile[i];
-                const tileElement = createTileElement(tile, true);
-                
-                // Add setup phase interactivity
-                if (gameState.setupPhase && isMyTurn && tile.value !== 'joker') {
-                    tileElement.classList.add('selectable');
-                    const isSelected = gameState.selectedTiles[myIndex].some(t => t.id === tile.id);
-                    if (isSelected) {
-                        tileElement.classList.add('selected');
+                // Input validation
+                document.getElementById('guessValueInput').addEventListener('input', (e) => {
+                    const value = parseInt(e.target.value);
+                    if (value < -1 || value > 11) {
+                        e.target.value = '';
                     }
-                    tileElement.addEventListener('click', () => handleTileClick(tile, tileElement));
-                }
-                
-                pileContainer.appendChild(tileElement);
+                });
             }
-            
-            // Display extra tile (26th) below the grid
-            if (gameState.pile.length === 26) {
-                const extraTile = gameState.pile[25];
-                const tileElement = createTileElement(extraTile, true);
-                
-                // Add setup phase interactivity
-                if (gameState.setupPhase && isMyTurn && extraTile.value !== 'joker') {
-                    tileElement.classList.add('selectable');
-                    const isSelected = gameState.selectedTiles[myIndex].some(t => t.id === extraTile.id);
-                    if (isSelected) {
-                        tileElement.classList.add('selected');
+
+            setupSocketEvents() {
+                this.socket.on('joinSuccess', (data) => {
+                    this.playerId = data.playerId;
+                    this.showMessage('Joined game successfully!', 2000);
+                });
+
+                this.socket.on('joinFailed', (data) => {
+                    this.showMessage(data.message, 3000);
+                });
+
+                this.socket.on('gameStateUpdate', (state) => {
+                    this.gameState = state;
+                    this.updateUI();
+                });
+
+                this.socket.on('gameStarted', () => {
+                    this.showGameTable();
+                    this.showMessage('Game started! Select 4 cards.', 3000);
+                });
+
+                this.socket.on('gamePlaying', () => {
+                    this.showMessage('All players ready! Game begins!', 2000);
+                });
+
+                this.socket.on('cardDrawn', (data) => {
+                    this.drawnCard = data.card;
+                    this.showMessage(`Drew ${this.formatCardValue(data.card)}`, 2000);
+                    this.updateGameControls();
+                });
+
+                this.socket.on('guessResult', (data) => {
+                    if (data.correct) {
+                        this.showMessage('Correct guess! Continue or end turn.', 3000);
+                    } else {
+                        this.showMessage('Wrong guess! Your most recent card is revealed.', 3000);
                     }
-                    tileElement.addEventListener('click', () => handleTileClick(extraTile, tileElement));
-                }
-                
-                pileExtra.appendChild(tileElement);
+                    this.updateGameControls();
+                });
+
+                this.socket.on('gameFinished', (data) => {
+                    this.showGameOver(data.winner);
+                });
+
+                this.socket.on('gameReset', () => {
+                    this.resetGame();
+                });
             }
-        }
 
+            sitDown() {
+                const name = document.getElementById('playerNameInput').value.trim() || null;
+                this.socket.emit('joinGame', { name });
+                this.socket.emit('playerReady');
+            }
 
-        function createTileElement(tile, faceDown = false) {
-            const tileDiv = document.createElement('div');
-            tileDiv.className = 'tile';
-            tileDiv.classList.add(tile.color);
-            
-            if (faceDown) {
-                tileDiv.classList.add('face-down');
-                tileDiv.textContent = '?';
-            } else {
-                if (tile.value === 'joker') {
-                    tileDiv.classList.add('joker');
-                    tileDiv.textContent = '-';
+            startGame() {
+                this.socket.emit('startGame');
+            }
+
+            addToHand() {
+                if (this.selectedCards.length === 4) {
+                    this.socket.emit('selectInitialCards', { cardIndices: this.selectedCards });
+                    this.selectedCards = [];
+                    this.updateSelectedCount();
+                }
+            }
+
+            drawCard() {
+                this.socket.emit('drawCard');
+            }
+
+            placeCard() {
+                if (this.drawnCard) {
+                    this.socket.emit('placeCard', { 
+                        card: this.drawnCard,
+                        position: this.drawnCard.value === 'joker' ? null : null 
+                    });
+                    this.drawnCard = null;
+                    this.updateGameControls();
+                }
+            }
+
+            submitGuess() {
+                const guessValue = document.getElementById('guessValueInput').value;
+                if (this.selectedOpponentCard >= 0 && guessValue !== '') {
+                    const value = guessValue === '-1' ? 'joker' : parseInt(guessValue);
+                    this.socket.emit('guessCard', {
+                        cardIndex: this.selectedOpponentCard,
+                        guessedValue: value
+                    });
+                    document.getElementById('guessValueInput').value = '';
+                    this.selectedOpponentCard = -1;
+                    this.updateOpponentCardSelection();
+                }
+            }
+
+            endTurn() {
+                this.socket.emit('endTurn');
+            }
+
+            newGame() {
+                this.socket.emit('newGame');
+            }
+
+            updateUI() {
+                if (!this.gameState) return;
+
+                if (this.gameState.players.length > 0) {
+                    this.playerIndex = this.gameState.players.findIndex(p => p.id === this.playerId);
+                }
+
+                if (this.gameState.gameState === 'lobby') {
+                    this.updateLobby();
+                } else if (this.gameState.gameState === 'setup') {
+                    this.updateSetup();
+                } else if (this.gameState.gameState === 'playing') {
+                    this.updatePlaying();
+                }
+            }
+
+            updateLobby() {
+                document.getElementById('lobbyScreen').style.display = 'flex';
+                document.getElementById('gameTable').style.display = 'none';
+
+                // Update player slots
+                for (let i = 0; i < 2; i++) {
+                    const slot = document.getElementById(`player${i}Slot`);
+                    const nameDiv = slot.querySelector('.player-name');
+                    const statusDiv = slot.querySelector('.ready-status');
+
+                    if (i < this.gameState.players.length) {
+                        const player = this.gameState.players[i];
+                        const displayName = player.id === this.playerId ? `${player.name} (You)` : player.name;
+                        nameDiv.textContent = displayName;
+                        statusDiv.textContent = player.ready ? 'Ready!' : 'Not Ready';
+                        slot.classList.toggle('ready', player.ready);
+                    } else {
+                        nameDiv.textContent = `Player ${i + 1}`;
+                        statusDiv.textContent = 'Waiting...';
+                        slot.classList.remove('ready');
+                    }
+                }
+
+                // Update controls
+                const canStart = this.gameState.players.length === 2 && this.gameState.players.every(p => p.ready);
+                document.getElementById('startGameBtn').disabled = !canStart;
+
+                // Show appropriate controls
+                if (this.gameState.players.length >= 2) {
+                    document.getElementById('joinControls').style.display = 'none';
+                    document.getElementById('gameInProgress').classList.remove('hidden');
                 } else {
-                    tileDiv.textContent = tile.value;
+                    const isJoined = this.gameState.players.some(p => p.id === this.playerId);
+                    document.getElementById('joinControls').style.display = isJoined ? 'block' : 'block';
+                    document.getElementById('gameInProgress').classList.add('hidden');
                 }
             }
-            
-            return tileDiv;
-        }
 
-        // Event listeners
-        sitBtn.addEventListener('click', () => {
-            if (playerRole === 'player' && !isSeated && !gameState.gameStarted) {
-                const playerName = playerNameInput.value.trim();
-                socket.emit('sit-down', { playerName });
+            updateSetup() {
+                this.showGameTable();
+                this.renderCommunityPile();
+                this.renderPlayerHands();
+                
+                // Show setup controls
+                document.getElementById('setupControls').classList.remove('hidden');
+                document.getElementById('gameControls').classList.add('hidden');
+                
+                this.updateSelectedCount();
             }
-        });
-        startBtn.addEventListener('click', () => {
-            if (playerRole === 'player' && isSeated && gameState.canStart) {
-                socket.emit('start-game');
+
+            updatePlaying() {
+                this.renderCommunityPile();
+                this.renderPlayerHands();
+                this.updateGameInfo();
+                this.updateGameControls();
+                
+                // Show game controls
+                document.getElementById('setupControls').classList.add('hidden');
+                document.getElementById('gameControls').classList.remove('hidden');
             }
-        });
 
-        // Initialize
-        function showError(message) {
-            const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = message;
-            errorElement.style.display = 'block';
-            setTimeout(() => {
-                errorElement.style.display = 'none';
-            }, 3000);
-        }
+            showGameTable() {
+                document.getElementById('lobbyScreen').style.display = 'none';
+                document.getElementById('gameTable').style.display = 'block';
+            }
 
-        function getMyPlayerIndex() {
-            return gameState.players.findIndex(p => p.id === playerId);
-        }
+            renderCommunityPile() {
+                const pile = document.getElementById('communityPile');
+                pile.innerHTML = '';
 
-        function handleTileClick(tile, tileElement) {
-            if (!gameState.setupPhase) return;
-            
-            const myIndex = getMyPlayerIndex();
-            if (myIndex === -1 || myIndex !== gameState.currentSetupPlayer) return;
-            
-            const isSelected = gameState.selectedTiles[myIndex].some(t => t.id === tile.id);
-            
-            if (isSelected) {
-                socket.emit('deselect-tile', { tileId: tile.id });
-            } else {
-                if (gameState.selectedTiles[myIndex].length < 4) {
-                    socket.emit('select-tile', { tileId: tile.id });
+                if (this.gameState.gameState === 'setup') {
+                    // Show selectable cards during setup
+                    for (let i = 0; i < this.gameState.communityPileSize; i++) {
+                        const card = document.createElement('div');
+                        card.className = `card community-card ${this.selectedCards.includes(i) ? 'selected' : ''}`;
+                        card.style.background = '#8B4513';
+                        card.textContent = '?';
+                        card.addEventListener('click', () => this.toggleCardSelection(i));
+                        pile.appendChild(card);
+                    }
+                } else {
+                    // Show remaining pile size during game
+                    for (let i = 0; i < Math.min(this.gameState.communityPileSize, 20); i++) {
+                        const card = document.createElement('div');
+                        card.className = 'card community-card';
+                        card.style.background = '#8B4513';
+                        card.textContent = '?';
+                        pile.appendChild(card);
+                    }
                 }
             }
+
+            renderPlayerHands() {
+                for (let playerIdx = 0; playerIdx < 2; playerIdx++) {
+                    const handElement = document.getElementById(`playerHand${playerIdx}`);
+                    const label = handElement.querySelector('.player-label');
+                    
+                    // Clear existing cards
+                    const cards = handElement.querySelectorAll('.card');
+                    cards.forEach(card => card.remove());
+
+                    // Set player label
+                    if (this.gameState.players[playerIdx]) {
+                        const player = this.gameState.players[playerIdx];
+                        const displayName = player.id === this.playerId ? `${player.name} (You)` : player.name;
+                        label.textContent = displayName;
+                    }
+
+                    // Render cards
+                    const hand = this.gameState.playerHands[playerIdx] || [];
+                    hand.forEach((card, cardIdx) => {
+                        const cardElement = this.createCardElement(card, playerIdx, cardIdx);
+                        handElement.appendChild(cardElement);
+                    });
+                }
+            }
+
+            createCardElement(card, playerIdx, cardIdx) {
+                const cardElement = document.createElement('div');
+                cardElement.className = `card ${card.color}`;
+
+                const isOwn = playerIdx === this.playerIndex;
+                const isRevealed = card.revealed;
+                const isHidden = !isOwn && !isRevealed;
+
+                if (isHidden) {
+                    cardElement.classList.add('hidden');
+                    cardElement.textContent = '?';
+                } else {
+                    cardElement.textContent = this.formatCardValue(card);
+                }
+
+                if (isRevealed) {
+                    cardElement.classList.add('revealed');
+                }
+
+                // Add click handler for opponent cards during guess phase
+                if (!isOwn && this.gameState.gameState === 'playing' && 
+                    this.gameState.turnPhase === 'guess' && 
+                    this.playerIndex === this.gameState.currentPlayer) {
+                    cardElement.style.cursor = 'pointer';
+                    cardElement.addEventListener('click', () => {
+                        this.selectedOpponentCard = cardIdx;
+                        this.updateOpponentCardSelection();
+                    });
+                }
+
+                return cardElement;
+            }
+
+            toggleCardSelection(cardIndex) {
+                if (this.gameState.gameState !== 'setup') return;
+
+                const idx = this.selectedCards.indexOf(cardIndex);
+                if (idx >= 0) {
+                    this.selectedCards.splice(idx, 1);
+                } else if (this.selectedCards.length < 4) {
+                    this.selectedCards.push(cardIndex);
+                }
+
+                this.renderCommunityPile();
+                this.updateSelectedCount();
+            }
+
+            updateSelectedCount() {
+                const countElement = document.getElementById('selectedCount');
+                if (countElement) {
+                    countElement.textContent = `Selected: ${this.selectedCards.length}/4`;
+                }
+
+                const addBtn = document.getElementById('addToHandBtn');
+                if (addBtn) {
+                    addBtn.disabled = this.selectedCards.length !== 4;
+                }
+            }
+
+            updateGameInfo() {
+                const currentTurnElement = document.getElementById('currentTurn');
+                const turnPhaseElement = document.getElementById('turnPhase');
+
+                if (this.gameState.players[this.gameState.currentPlayer]) {
+                    const currentPlayer = this.gameState.players[this.gameState.currentPlayer];
+                    const isYourTurn = currentPlayer.id === this.playerId;
+                    currentTurnElement.textContent = isYourTurn ? 'Your Turn' : `${currentPlayer.name}'s Turn`;
+                }
+
+                const phaseText = {
+                    'draw': 'Draw a card',
+                    'place': 'Place the drawn card',
+                    'guess': 'Guess opponent\'s card'
+                };
+                turnPhaseElement.textContent = phaseText[this.gameState.turnPhase] || '';
+            }
+
+            updateGameControls() {
+                const isMyTurn = this.playerIndex === this.gameState.currentPlayer;
+                const phase = this.gameState.turnPhase;
+
+                // Show/hide buttons based on turn and phase
+                document.getElementById('drawCardBtn').classList.toggle('hidden', !isMyTurn || phase !== 'draw');
+                document.getElementById('placeCardBtn').classList.toggle('hidden', !isMyTurn || phase !== 'place');
+                document.getElementById('guessControls').classList.toggle('hidden', !isMyTurn || phase !== 'guess');
+                document.getElementById('endTurnBtn').classList.toggle('hidden', !isMyTurn || phase !== 'guess');
+
+                // Update place button state
+                const placeBtn = document.getElementById('placeCardBtn');
+                placeBtn.disabled = !this.drawnCard;
+            }
+
+            updateOpponentCardSelection() {
+                // Visual feedback for selected opponent card
+                const opponentIdx = 1 - this.playerIndex;
+                const handElement = document.getElementById(`playerHand${opponentIdx}`);
+                const cards = handElement.querySelectorAll('.card');
+                
+                cards.forEach((card, idx) => {
+                    card.classList.toggle('selected', idx === this.selectedOpponentCard);
+                });
+            }
+
+            formatCardValue(card) {
+                return card.value === 'joker' ? '-' : card.value.toString();
+            }
+
+            showGameOver(winner) {
+                document.getElementById('winnerText').textContent = `${winner} wins!`;
+                document.getElementById('gameOverlay').style.display = 'flex';
+            }
+
+            showMessage(message, duration = 3000) {
+                const messageDiv = document.getElementById('messageDiv');
+                messageDiv.textContent = message;
+                messageDiv.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    messageDiv.classList.add('hidden');
+                }, duration);
+            }
+
+            resetGame() {
+                this.selectedCards = [];
+                this.drawnCard = null;
+                this.selectedOpponentCard = -1;
+                document.getElementById('gameOverlay').style.display = 'none';
+                document.getElementById('lobbyScreen').style.display = 'flex';
+                document.getElementById('gameTable').style.display = 'none';
+            }
         }
 
-        // Add to Hand button
-        document.getElementById('addToHandBtn').addEventListener('click', () => {
-            socket.emit('confirm-selection');
-        });
-
-        // Initialize
-        updateConnectionStatus('Connecting...', false);
+        // Initialize the game client
+        const gameClient = new DaVinciCodeClient();
     </script>
 </body>
 </html>

@@ -1,392 +1,402 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const cors = require('cors');
 const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Game state - Single room for all players
-let gameRoom = null;
-
-class Tile {
-    constructor(color, value) {
-        this.color = color; // 'white' or 'black'
-        this.value = value; // 0-11 or 'joker'
-        this.id = `${color}-${value}`;
-    }
-
-    // For sorting tiles in hand
-    getSortValue() {
-        if (this.value === 'joker') {
-            return this.color === 'black' ? 12 : 13;
-        }
-        return this.color === 'black' ? this.value : this.value + 0.5;
-    }
-}
-
+// Game state management
 class GameRoom {
-    constructor() {
-        this.players = [];
-        this.spectators = [];
-        this.gameStarted = false;
-        this.setupPhase = false;
-        this.currentSetupPlayer = 0;
-        this.selectedTiles = [[], []]; // Selected tiles for each player
-        this.pile = [];
-        this.hands = [[], []]; // Two hands for two players
-        this.maxPlayers = 2;
-        this.createTiles();
+  constructor() {
+    this.players = [];
+    this.gameState = 'lobby'; // lobby, setup, playing, finished
+    this.currentPlayer = 0;
+    this.communityPile = [];
+    this.playerHands = [[], []];
+    this.revealedCards = [new Set(), new Set()];
+    this.selectedCards = [[], []];
+    this.turnPhase = 'draw'; // draw, place, guess
+  }
+
+  addPlayer(socket, name) {
+    if (this.players.length >= 2) return false;
+    
+    this.players.push({
+      socket: socket,
+      name: name || `Player ${this.players.length + 1}`,
+      ready: false,
+      id: socket.id
+    });
+    
+    return true;
+  }
+
+  removePlayer(socketId) {
+    this.players = this.players.filter(p => p.id !== socketId);
+    if (this.players.length === 0) {
+      this.resetGame();
+    }
+  }
+
+  setPlayerReady(socketId, ready) {
+    const player = this.players.find(p => p.id === socketId);
+    if (player) {
+      player.ready = ready;
+    }
+  }
+
+  canStartGame() {
+    return this.players.length === 2 && this.players.every(p => p.ready);
+  }
+
+  initializeGame() {
+    this.gameState = 'setup';
+    this.communityPile = this.createShuffledDeck();
+    this.playerHands = [[], []];
+    this.revealedCards = [new Set(), new Set()];
+    this.selectedCards = [[], []];
+    this.currentPlayer = Math.floor(Math.random() * 2);
+    this.turnPhase = 'draw';
+  }
+
+  createShuffledDeck() {
+    const deck = [];
+    
+    // Create 13 white cards (0-11 + joker)
+    for (let i = 0; i <= 11; i++) {
+      deck.push({ color: 'white', value: i, hidden: true });
+    }
+    deck.push({ color: 'white', value: 'joker', hidden: true });
+    
+    // Create 13 black cards (0-11 + joker)
+    for (let i = 0; i <= 11; i++) {
+      deck.push({ color: 'black', value: i, hidden: true });
+    }
+    deck.push({ color: 'black', value: 'joker', hidden: true });
+    
+    // Shuffle the deck
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    
+    return deck;
+  }
+
+  selectInitialCards(playerId, cardIndices) {
+    if (this.gameState !== 'setup') return false;
+    if (cardIndices.length !== 4) return false;
+    
+    const playerIndex = this.players.findIndex(p => p.id === playerId);
+    if (playerIndex === -1) return false;
+
+    // Check if cards contain jokers (not allowed in initial selection)
+    const selectedCards = cardIndices.map(i => this.communityPile[i]);
+    if (selectedCards.some(card => card.value === 'joker')) return false;
+
+    // Assign random values based on color
+    const finalCards = selectedCards.map(card => {
+      const availableValues = this.getAvailableValues(card.color);
+      const randomValue = availableValues[Math.floor(Math.random() * availableValues.length)];
+      return { ...card, value: randomValue, hidden: false };
+    });
+
+    this.playerHands[playerIndex] = this.sortHand(finalCards);
+    this.selectedCards[playerIndex] = cardIndices;
+
+    // Remove selected cards from community pile
+    this.communityPile = this.communityPile.filter((_, index) => !cardIndices.includes(index));
+
+    return true;
+  }
+
+  getAvailableValues(color) {
+    const allValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
+    const usedValues = [];
+    
+    // Check what values are already used
+    this.playerHands.forEach(hand => {
+      hand.forEach(card => {
+        if (card.color === color && card.value !== 'joker') {
+          usedValues.push(card.value);
+        }
+      });
+    });
+
+    return allValues.filter(val => !usedValues.includes(val));
+  }
+
+  drawCard(playerId) {
+    if (this.gameState !== 'playing') return null;
+    
+    const playerIndex = this.players.findIndex(p => p.id === playerId);
+    if (playerIndex !== this.currentPlayer) return null;
+    if (this.turnPhase !== 'draw') return null;
+    if (this.communityPile.length === 0) return null;
+
+    const drawnCard = this.communityPile.pop();
+    
+    // Assign value if not joker
+    if (drawnCard.value !== 'joker') {
+      const availableValues = this.getAvailableValues(drawnCard.color);
+      if (availableValues.length > 0) {
+        drawnCard.value = availableValues[Math.floor(Math.random() * availableValues.length)];
+      }
     }
 
-    createTiles() {
-        this.pile = [];
-        
-        // Create 13 white tiles (0-11 + joker)
-        for (let i = 0; i <= 11; i++) {
-            this.pile.push(new Tile('white', i));
-        }
-        this.pile.push(new Tile('white', 'joker'));
-        
-        // Create 13 black tiles (0-11 + joker)
-        for (let i = 0; i <= 11; i++) {
-            this.pile.push(new Tile('black', i));
-        }
-        this.pile.push(new Tile('black', 'joker'));
-        
-        // Shuffle the pile
-        this.shufflePile();
+    this.turnPhase = 'place';
+    return drawnCard;
+  }
+
+  placeCard(playerId, card, position = null) {
+    const playerIndex = this.players.findIndex(p => p.id === playerId);
+    if (playerIndex !== this.currentPlayer) return false;
+    if (this.turnPhase !== 'place') return false;
+
+    if (card.value === 'joker') {
+      // Joker can be placed anywhere
+      if (position !== null) {
+        this.playerHands[playerIndex].splice(position, 0, card);
+      } else {
+        this.playerHands[playerIndex].push(card);
+      }
+    } else {
+      // Non-joker has fixed position
+      this.playerHands[playerIndex].push(card);
+      this.playerHands[playerIndex] = this.sortHand(this.playerHands[playerIndex]);
     }
 
-    shufflePile() {
-        for (let i = this.pile.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [this.pile[i], this.pile[j]] = [this.pile[j], this.pile[i]];
-        }
-    }
+    this.turnPhase = 'guess';
+    return true;
+  }
 
-    addPlayer(playerId, socketId, name) {
-        if (this.players.length < this.maxPlayers) {
-            const player = {
-                id: playerId,
-                socketId: socketId,
-                name: name || `Player ${this.players.length + 1}`,
-                seated: false
-            };
-            this.players.push(player);
-            return { success: true, role: 'player' };
-        } else {
-            // Add as spectator
-            const spectator = {
-                id: playerId,
-                socketId: socketId,
-                name: name || `Spectator ${this.spectators.length + 1}`
-            };
-            this.spectators.push(spectator);
-            return { success: true, role: 'spectator' };
-        }
-    }
+  guessCard(playerId, opponentCardIndex, guessedValue) {
+    const playerIndex = this.players.findIndex(p => p.id === playerId);
+    if (playerIndex !== this.currentPlayer) return null;
+    if (this.turnPhase !== 'guess') return null;
 
-    removePlayer(socketId) {
-        // Remove from players
-        let index = this.players.findIndex(p => p.socketId === socketId);
-        if (index !== -1) {
-            this.players.splice(index, 1);
-            // Reset game if a player leaves
-            this.resetGame();
-            return true;
-        }
-        
-        // Remove from spectators
-        index = this.spectators.findIndex(s => s.socketId === socketId);
-        if (index !== -1) {
-            this.spectators.splice(index, 1);
-            return true;
-        }
-        
-        return false;
-    }
+    const opponentIndex = 1 - playerIndex;
+    const opponentHand = this.playerHands[opponentIndex];
+    
+    if (opponentCardIndex >= opponentHand.length) return null;
+    
+    const targetCard = opponentHand[opponentCardIndex];
+    const isCorrect = targetCard.value === guessedValue;
 
-    sitDown(socketId) {
-        const player = this.players.find(p => p.socketId === socketId);
-        if (player && !player.seated && !this.gameStarted) {
-            player.seated = true;
-            return true;
+    if (isCorrect) {
+      // Reveal the guessed card
+      this.revealedCards[opponentIndex].add(opponentCardIndex);
+      
+      // Check if opponent lost (all cards revealed)
+      if (this.revealedCards[opponentIndex].size === opponentHand.length) {
+        this.gameState = 'finished';
+        return { correct: true, gameOver: true, winner: playerIndex };
+      }
+      
+      // Player can continue guessing or end turn
+      return { correct: true, gameOver: false };
+    } else {
+      // Reveal player's most recent card
+      const playerHand = this.playerHands[playerIndex];
+      if (playerHand.length > 0) {
+        const mostRecentIndex = playerHand.length - 1;
+        this.revealedCards[playerIndex].add(mostRecentIndex);
+        
+        // Check if current player lost
+        if (this.revealedCards[playerIndex].size === playerHand.length) {
+          this.gameState = 'finished';
+          return { correct: false, gameOver: true, winner: opponentIndex };
         }
-        return false;
+      }
+      
+      // End turn
+      this.currentPlayer = 1 - this.currentPlayer;
+      this.turnPhase = 'draw';
+      return { correct: false, gameOver: false };
     }
+  }
 
-    canStart() {
-        return this.players.length === this.maxPlayers && 
-               this.players.every(p => p.seated) && 
-               !this.gameStarted;
-    }
+  sortHand(hand) {
+    return hand.sort((a, b) => {
+      // Jokers can be anywhere, don't sort them
+      if (a.value === 'joker' || b.value === 'joker') return 0;
+      
+      // Sort by value first
+      if (a.value !== b.value) {
+        return a.value - b.value;
+      }
+      
+      // If same value, black comes before white
+      if (a.color === 'black' && b.color === 'white') return -1;
+      if (a.color === 'white' && b.color === 'black') return 1;
+      
+      return 0;
+    });
+  }
 
-    startGame() {
-        if (this.canStart()) {
-            this.gameStarted = true;
-            this.setupPhase = true;
-            this.currentSetupPlayer = 0;
-            this.selectedTiles = [[], []];
-            return true;
-        }
-        return false;
-    }
+  getGameState() {
+    return {
+      gameState: this.gameState,
+      players: this.players.map(p => ({ name: p.name, ready: p.ready, id: p.id })),
+      currentPlayer: this.currentPlayer,
+      turnPhase: this.turnPhase,
+      communityPileSize: this.communityPile.length,
+      playerHands: this.playerHands.map((hand, index) => 
+        hand.map((card, cardIndex) => ({
+          ...card,
+          revealed: this.revealedCards[index].has(cardIndex)
+        }))
+      )
+    };
+  }
 
-    selectTile(playerIndex, tileId) {
-        if (!this.setupPhase || this.currentSetupPlayer !== playerIndex) {
-            return { success: false, message: "Not your turn to select" };
-        }
-        
-        if (this.selectedTiles[playerIndex].length >= 4) {
-            return { success: false, message: "Already selected 4 tiles" };
-        }
-        
-        const tileIndex = this.pile.findIndex(tile => tile.id === tileId);
-        if (tileIndex === -1) {
-            return { success: false, message: "Tile not found" };
-        }
-        
-        const tile = this.pile[tileIndex];
-        if (tile.value === 'joker') {
-            return { success: false, message: "Cannot select joker tiles in setup" };
-        }
-        
-        this.selectedTiles[playerIndex].push(tile);
-        return { success: true };
-    }
-
-    deselectTile(playerIndex, tileId) {
-        if (!this.setupPhase || this.currentSetupPlayer !== playerIndex) {
-            return { success: false, message: "Not your turn to deselect" };
-        }
-        
-        const tileIndex = this.selectedTiles[playerIndex].findIndex(tile => tile.id === tileId);
-        if (tileIndex === -1) {
-            return { success: false, message: "Tile not selected" };
-        }
-        
-        this.selectedTiles[playerIndex].splice(tileIndex, 1);
-        return { success: true };
-    }
-
-    confirmSelection(playerIndex) {
-        if (!this.setupPhase || this.currentSetupPlayer !== playerIndex) {
-            return { success: false, message: "Not your turn" };
-        }
-        
-        if (this.selectedTiles[playerIndex].length !== 4) {
-            return { success: false, message: "Must select exactly 4 tiles" };
-        }
-        
-        // Move selected tiles to hand
-        this.selectedTiles[playerIndex].forEach(tile => {
-            const pileIndex = this.pile.findIndex(t => t.id === tile.id);
-            if (pileIndex !== -1) {
-                this.pile.splice(pileIndex, 1);
-            }
-            this.hands[playerIndex].push(tile);
-        });
-        
-        // Sort hand
-        this.sortHand(playerIndex);
-        
-        // Clear selections
-        this.selectedTiles[playerIndex] = [];
-        
-        // Move to next player or end setup phase
-        if (this.currentSetupPlayer === 1) {
-            this.setupPhase = false;
-            this.currentSetupPlayer = 0;
-        } else {
-            this.currentSetupPlayer = 1;
-        }
-        
-        return { success: true };
-    }
-
-    sortHand(playerIndex) {
-        this.hands[playerIndex].sort((a, b) => a.getSortValue() - b.getSortValue());
-    }
-
-    resetGame() {
-        this.gameStarted = false;
-        this.setupPhase = false;
-        this.currentSetupPlayer = 0;
-        this.selectedTiles = [[], []];
-        this.createTiles();
-        this.hands = [[], []];
-        // Reset seated status
-        this.players.forEach(player => player.seated = false);
-    }
-
-    getGameState() {
-        const seatedPlayers = this.players.filter(p => p.seated);
-        
-        return {
-            players: this.players.map(p => ({
-                id: p.id,
-                name: p.name,
-                seated: p.seated
-            })),
-            spectators: this.spectators.map(s => ({
-                id: s.id,
-                name: s.name
-            })),
-            gameStarted: this.gameStarted,
-            setupPhase: this.setupPhase,
-            currentSetupPlayer: this.currentSetupPlayer,
-            selectedTiles: this.selectedTiles,
-            canStart: this.canStart(),
-            seatedCount: seatedPlayers.length,
-            pile: this.pile.map(tile => ({ ...tile, faceDown: true })),
-            hands: this.hands,
-            totalPlayers: this.players.length,
-            totalSpectators: this.spectators.length
-        };
-    }
+  resetGame() {
+    this.gameState = 'lobby';
+    this.currentPlayer = 0;
+    this.communityPile = [];
+    this.playerHands = [[], []];
+    this.revealedCards = [new Set(), new Set()];
+    this.selectedCards = [[], []];
+    this.turnPhase = 'draw';
+    this.players.forEach(p => p.ready = false);
+  }
 }
 
-// Initialize single game room
-gameRoom = new GameRoom();
+// Single game room for now
+const gameRoom = new GameRoom();
 
-// Socket.io connection handling
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
-    
-    socket.on('join-room', (data) => {
-        const { playerId, playerName } = data;
-        
-        // Check if player is already connected
-        const existingPlayer = gameRoom.players.find(p => p.id === playerId);
-        const existingSpectator = gameRoom.spectators.find(s => s.id === playerId);
-        
-        if (existingPlayer) {
-            // Update socket ID for reconnection
-            existingPlayer.socketId = socket.id;
-            socket.playerId = playerId;
-            socket.role = 'player';
-        } else if (existingSpectator) {
-            // Update socket ID for reconnection
-            existingSpectator.socketId = socket.id;
-            socket.playerId = playerId;
-            socket.role = 'spectator';
-        } else {
-            // Add new player/spectator
-            const result = gameRoom.addPlayer(playerId, socket.id, playerName);
-            socket.playerId = playerId;
-            socket.role = result.role;
-        }
-        
-        // Send updated room state to all clients
-        io.emit('room-update', gameRoom.getGameState());
-    });
-    
-    socket.on('sit-down', (data) => {
-        if (socket.role === 'player') {
-            const { playerName } = data || {};
-            const player = gameRoom.players.find(p => p.socketId === socket.id);
-            if (player && playerName && playerName.trim()) {
-                player.name = playerName.trim();
-            }
-            if (gameRoom.sitDown(socket.id)) {
-                io.emit('room-update', gameRoom.getGameState());
-            }
-        }
-    });
-    
-    socket.on('start-game', () => {
-        // Only seated players can start the game
-        const player = gameRoom.players.find(p => p.socketId === socket.id);
-        if (player && player.seated) {
-            if (gameRoom.startGame()) {
-                io.emit('game-started', gameRoom.getGameState());
-            }
-        }
-    });
-    
-    socket.on('select-tile', (data) => {
-        const { tileId } = data;
-        const player = gameRoom.players.find(p => p.socketId === socket.id);
-        if (player && player.seated) {
-            const playerIndex = gameRoom.players.findIndex(p => p.socketId === socket.id);
-            const result = gameRoom.selectTile(playerIndex, tileId);
-            if (result.success) {
-                io.emit('game-update', gameRoom.getGameState());
-            } else {
-                socket.emit('error', { message: result.message });
-            }
-        }
-    });
-    socket.on('deselect-tile', (data) => {
-        const { tileId } = data;
-        const player = gameRoom.players.find(p => p.socketId === socket.id);
-        if (player && player.seated) {
-            const playerIndex = gameRoom.players.findIndex(p => p.socketId === socket.id);
-            const result = gameRoom.deselectTile(playerIndex, tileId);
-            if (result.success) {
-                io.emit('game-update', gameRoom.getGameState());
-            } else {
-                socket.emit('error', { message: result.message });
-            }
-        }
-    });
+  console.log('User connected:', socket.id);
 
-    socket.on('confirm-selection', () => {
-        const player = gameRoom.players.find(p => p.socketId === socket.id);
-        if (player && player.seated) {
-            const playerIndex = gameRoom.players.findIndex(p => p.socketId === socket.id);
-            const result = gameRoom.confirmSelection(playerIndex);
-            if (result.success) {
-                io.emit('game-update', gameRoom.getGameState());
-            } else {
-                socket.emit('error', { message: result.message });
-            }
-        }
-    });
+  // Join game
+  socket.on('joinGame', (data) => {
+    const success = gameRoom.addPlayer(socket, data.name);
+    
+    if (success) {
+      socket.emit('joinSuccess', { playerId: socket.id });
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+    } else {
+      socket.emit('joinFailed', { message: 'Game is full' });
+    }
+  });
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-        
-        gameRoom.removePlayer(socket.id);
-        io.emit('room-update', gameRoom.getGameState());
-    });
+  // Player ready
+  socket.on('playerReady', () => {
+    gameRoom.setPlayerReady(socket.id, true);
+    io.emit('gameStateUpdate', gameRoom.getGameState());
+  });
 
+  // Start game
+  socket.on('startGame', () => {
+    if (gameRoom.canStartGame()) {
+      gameRoom.initializeGame();
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+      io.emit('gameStarted');
+    }
+  });
+
+  // Select initial cards
+  socket.on('selectInitialCards', (data) => {
+    const success = gameRoom.selectInitialCards(socket.id, data.cardIndices);
+    
+    if (success) {
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+      
+      // Check if both players have selected
+      if (gameRoom.selectedCards[0].length === 4 && gameRoom.selectedCards[1].length === 4) {
+        gameRoom.gameState = 'playing';
+        io.emit('gameStateUpdate', gameRoom.getGameState());
+        io.emit('gamePlaying');
+      }
+    }
+  });
+
+  // Draw card
+  socket.on('drawCard', () => {
+    const drawnCard = gameRoom.drawCard(socket.id);
+    
+    if (drawnCard) {
+      socket.emit('cardDrawn', { card: drawnCard });
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+    }
+  });
+
+  // Place card
+  socket.on('placeCard', (data) => {
+    const success = gameRoom.placeCard(socket.id, data.card, data.position);
+    
+    if (success) {
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+    }
+  });
+
+  // Guess card
+  socket.on('guessCard', (data) => {
+    const result = gameRoom.guessCard(socket.id, data.cardIndex, data.guessedValue);
+    
+    if (result) {
+      io.emit('guessResult', {
+        playerId: socket.id,
+        correct: result.correct,
+        gameOver: result.gameOver,
+        winner: result.winner
+      });
+      
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+      
+      if (result.gameOver) {
+        const winnerName = gameRoom.players[result.winner].name;
+        io.emit('gameFinished', { winner: winnerName });
+      }
+    }
+  });
+
+  // End turn (when player chooses not to continue guessing)
+  socket.on('endTurn', () => {
+    if (gameRoom.turnPhase === 'guess') {
+      gameRoom.currentPlayer = 1 - gameRoom.currentPlayer;
+      gameRoom.turnPhase = 'draw';
+      io.emit('gameStateUpdate', gameRoom.getGameState());
+    }
+  });
+
+  // New game
+  socket.on('newGame', () => {
+    gameRoom.resetGame();
+    io.emit('gameStateUpdate', gameRoom.getGameState());
+    io.emit('gameReset');
+  });
+
+  // Disconnect
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+    gameRoom.removePlayer(socket.id);
+    io.emit('gameStateUpdate', gameRoom.getGameState());
+  });
 });
 
-// API endpoints
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
-        totalPlayers: gameRoom.players.length,
-        totalSpectators: gameRoom.spectators.length,
-        gameStarted: gameRoom.gameStarted
-    });
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/game-state', (req, res) => {
-    res.json(gameRoom.getGameState());
-});
-
-// Serve the client
+// Serve the main page
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Da Vinci Code server running on port ${PORT}`);
 });
