@@ -185,13 +185,13 @@ class GameRoom {
 
   guessCard(opponentCardIndex, value) {
     this.resetLastRevealedCard();
+
+    // joker is already "j" by client's submitGuess()
     let guessedValue = value;
     if (value == 10) {
       guessedValue = "t";
     } else if (value == 11) {
       guessedValue = "v";
-    } else if (value == "-") {
-      guessedValue = "j";
     }
 
     const playerId = this.currentPlayerId;
