@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
 const path = require("path");
+const { group } = require("console");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,22 +23,23 @@ class GameRoom {
   constructor() {
     this.players = [];
     this.gameState = "lobby"; // lobby, setup, playing, finished
-    this.currentPlayer = 0;
+    this.currentPlayerId = null;
+    this.whitePile = [];
+    this.blackPile = [];
     this.communityPile = [];
     this.playerHands = [[], []];
-    this.revealedCards = [new Set(), new Set()];
-    this.selectedCards = [[], []];
-    this.turnPhase = "draw"; // draw, place, guess
-    this.lastPlacedIndex = [null, null];
+    this.selectedColors = [[], []];
+    this.turnPhase = null; // draw, place, guess
   }
 
+  // Add a player to players
   addPlayer(socket, name) {
     if (this.players.length >= 2) return false;
 
     this.players.push({
       socket: socket,
       name: name || `Player ${this.players.length + 1}`,
-      ready: false,
+      ready: true,
       id: socket.id,
     });
 
@@ -51,113 +53,46 @@ class GameRoom {
     }
   }
 
-  setPlayerReady(socketId, ready) {
-    const player = this.players.find((p) => p.id === socketId);
-    if (player) {
-      player.ready = ready;
-      return true;
-    }
-    return false;
-  }
-
   canStartGame() {
     return this.players.length === 2 && this.players.every((p) => p.ready);
   }
 
-  createSetupPlaceholders() {
-    const placeholders = [];
-    for (let i = 0; i < 26; i++) {
-      placeholders.push({
-        color: i % 2 === 0 ? "white" : "black",
-        value: null,
-        hidden: true,
-        drawn: false,
-        communityIndex: i,
-      });
-    }
-    return placeholders;
-  }
-
   initializeGame() {
     this.gameState = "setup";
-    this.communityPile = this.createSetupPlaceholders();
-    this.playerHands = [[], []];
-    this.revealedCards = [new Set(), new Set()];
-    this.selectedCards = [[], []];
-    this.currentPlayer = Math.floor(Math.random() * 2);
-    this.turnPhase = "draw";
-  }
-
-  createShuffledDeck() {
-    const deck = [];
-    const whiteValues = Array.from({ length: 12 }, (_, i) => i);
-    const blackValues = Array.from({ length: 12 }, (_, i) => i);
-
-    this.shuffleArray(whiteValues);
-    this.shuffleArray(blackValues);
-
-    let whiteIndex = 0;
-    let blackIndex = 0;
-    let communityIndex = 0;
-
-    // First, account for selectedCards from both players
-    const usedColors = [
-      ...(this.selectedCards[0] || []),
-      ...(this.selectedCards[1] || []),
+    this.whitePile = [
+      "w0fff",
+      "w1fff",
+      "w2fff",
+      "w3fff",
+      "w4fff",
+      "w5fff",
+      "w6fff",
+      "w7fff",
+      "w8fff",
+      "w9fff",
+      "wtfff",
+      "wvfff",
+    ];
+    this.blackPile = [
+      "b0fff",
+      "b1fff",
+      "b2fff",
+      "b3fff",
+      "b4fff",
+      "b5fff",
+      "b6fff",
+      "b7fff",
+      "b8fff",
+      "b9fff",
+      "btfff",
+      "bvfff",
     ];
 
-    for (const color of usedColors) {
-      if (color === "white") whiteIndex++;
-      else if (color === "black") blackIndex++;
-    }
-
-    console.log("[DEBUG]: whiteIndex: ", whiteIndex);
-    console.log("[DEBUG]: blackIndex: ", blackIndex);
-
-    // Build the community pile from the remaining values
-    while (whiteIndex < 12 || blackIndex < 12) {
-      let color;
-      if (whiteIndex < 12 && blackIndex < 12) {
-        // Alternate for visual variety
-        color = communityIndex % 2 === 0 ? "white" : "black";
-      } else if (whiteIndex < 12) {
-        color = "white";
-      } else {
-        color = "black";
-      }
-
-      deck.push({
-        color,
-        value: null,
-        hidden: true,
-        drawn: false,
-        communityIndex: communityIndex++,
-      });
-
-      if (color === "white") whiteIndex++;
-      else blackIndex++;
-    }
-
-    deck.push({
-      color: "white",
-      value: "joker",
-      hidden: true,
-      drawn: false,
-      communityIndex: communityIndex++,
-    });
-    deck.push({
-      color: "black",
-      value: "joker",
-      hidden: true,
-      drawn: false,
-      communityIndex: communityIndex++,
-    });
-
-    return deck;
+    const randomIndex = Math.floor(Math.random() * 2); // 0 or 1
+    this.currentPlayerId = this.players[randomIndex].id;
   }
 
   selectInitialCards(playerId, cardIndices) {
-    this.communityPile = this.createShuffledDeck();
     if (this.gameState !== "setup") return false;
     if (cardIndices.length !== 4) return false;
 
@@ -170,49 +105,35 @@ class GameRoom {
       return i % 2 === 0 ? "white" : "black";
     });
 
-    this.selectedCards[playerIndex] = selectedColors;
+    this.selectedColors[playerIndex] = selectedColors;
     return true;
   }
 
   dealInitialHands() {
-    const whiteValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
-    const blackValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
-
-    // Shuffle available values
-    this.shuffleArray(whiteValues);
-    this.shuffleArray(blackValues);
-
-    let whiteIndex = 0;
-    let blackIndex = 0;
+    this.shuffleArray(this.whitePile);
+    this.shuffleArray(this.blackPile);
 
     // Deal cards to each player
     for (let playerIndex = 0; playerIndex < 2; playerIndex++) {
-      const selectedColors = this.selectedCards[playerIndex];
+      const selectedColors = this.selectedColors[playerIndex];
       const hand = [];
 
       for (const color of selectedColors) {
-        let value;
         if (color === "white") {
-          value = whiteValues[whiteIndex++];
+          hand.push(this.whitePile.pop());
         } else {
-          value = blackValues[blackIndex++];
+          hand.push(this.blackPile.pop());
         }
-
-        hand.push({
-          color: color,
-          value: value,
-          hidden: false,
-          revealed: false,
-          communityIndex: `${color}-${value}`,
-        });
       }
 
-      this.playerHands[playerIndex] = this.sortHand(hand);
-    }
+      console.log("[DEBUG] hand is ", hand);
 
-    // Remove dealt cards from community pile
-    const totalDealtCards = 8; // 4 cards per player
-    this.communityPile = this.communityPile.slice(totalDealtCards);
+      this.playerHands[playerIndex] = this.sortInitialHand(hand);
+      console.log(
+        "[DEBUG] dealInitialHands(): playerHands is ",
+        this.playerHands,
+      );
+    }
   }
 
   shuffleArray(array) {
@@ -238,84 +159,57 @@ class GameRoom {
     return allValues.filter((val) => !usedValues.includes(val));
   }
 
-  drawCard(playerId, cardIndex = null) {
-    console.log("[DEBUG] drawCard() on server.js: cardIndex is ", cardIndex);
-    if (this.gameState !== "playing") return null;
-
-    const playerIndex = this.players.findIndex((p) => p.id === playerId);
-    if (playerIndex !== this.currentPlayer) return null;
-    if (this.turnPhase !== "draw") return null;
+  // Mark a drawnCard with "d" and return a drawnCard
+  drawCard(cardIndex) {
+    console.log(
+      "BEFORE:",
+      this.communityPile,
+      cardIndex,
+      this.communityPile[cardIndex],
+    );
     if (this.communityPile.length === 0) return null;
 
-    // If specific card index provided, use it (bounded by available cards)
-    const actualIndex = cardIndex;
+    const originalCard = this.communityPile[cardIndex];
+    const cardCopy = originalCard.slice();
 
-    if (actualIndex < 0 || actualIndex >= this.communityPile.length) {
-      return null; // invalid index
-    }
+    // Mutate the original (e.g., mark as drawn)
+    this.communityPile[cardIndex] =
+      originalCard.slice(0, 2) + "d" + originalCard.slice(3);
 
-    const drawnCardMeta = this.communityPile[actualIndex];
-    if (!drawnCardMeta || drawnCardMeta.drawn) return null;
-
-    drawnCardMeta.drawn = true;
-
-    const drawnCard = {
-      color: drawnCardMeta.color,
-      hidden: false,
-      revealed: false,
-      communityIndex: drawnCardMeta.communityIndex,
-    };
-
-    if (drawnCardMeta.value === "joker") {
-      drawnCard.value = "joker";
-    } else {
-      const availableValues = this.getAvailableValues(drawnCard.color);
-      if (availableValues.length > 0) {
-        drawnCard.value =
-          availableValues[Math.floor(Math.random() * availableValues.length)];
-      } else {
-        // fallback: return null or handle "out of values" gracefully
-        return null;
-      }
-    }
-
-    this.turnPhase = "place";
-    return drawnCard;
+    console.log("AFTER:", this.communityPile[cardIndex]);
+    return cardCopy; // return the unmutated copy
   }
 
-  placeCard(playerId, card, position = null) {
-    const playerIndex = this.players.findIndex((p) => p.id === playerId);
-    if (playerIndex !== this.currentPlayer) return false;
-    if (this.turnPhase !== "place") return false;
+  placeCard(drawnCard, position) {
+    const card = drawnCard.slice(0, 3) + "t" + drawnCard.slice(4);
+    // 1. Find player index using currentPlayerId
+    const playerIndex = this.players.findIndex(
+      (p) => p.id === this.currentPlayerId,
+    );
 
-    // Insert card and record its exact index
-    if (card.value === "joker") {
-      if (position !== null) {
-        this.playerHands[playerIndex].splice(position, 0, card);
-        this.lastPlacedIndex[playerIndex] = position;
-      } else {
-        this.playerHands[playerIndex].push(card);
-        this.lastPlacedIndex[playerIndex] =
-          this.playerHands[playerIndex].length - 1;
-      }
-    } else {
-      if (position !== null) {
-        this.playerHands[playerIndex].splice(position, 0, card);
-        this.lastPlacedIndex[playerIndex] = position;
-      } else {
-        this.playerHands[playerIndex].push(card);
-        this.lastPlacedIndex[playerIndex] =
-          this.playerHands[playerIndex].length - 1;
-      }
+    if (playerIndex === -1) {
+      console.error("[ERROR] Invalid currentPlayerId; player not found.");
+      return;
     }
 
-    this.turnPhase = "guess";
+    // 2. Insert the card into the player's hand at the specified position
+    this.playerHands[playerIndex].splice(position, 0, card);
     return true;
   }
 
-  guessCard(playerId, opponentCardIndex, guessedValue) {
+  guessCard(opponentCardIndex, value) {
+    this.resetLastRevealedCard();
+    let guessedValue = value;
+    if (value == 10) {
+      guessedValue = "t";
+    } else if (value == 11) {
+      guessedValue = "v";
+    } else if (value == "-") {
+      guessedValue = "j";
+    }
+
+    const playerId = this.currentPlayerId;
     const playerIndex = this.players.findIndex((p) => p.id === playerId);
-    if (playerIndex !== this.currentPlayer) return null;
     if (this.turnPhase !== "guess") return null;
 
     const opponentIndex = 1 - playerIndex;
@@ -323,127 +217,230 @@ class GameRoom {
 
     if (opponentCardIndex >= opponentHand.length) return null;
 
-    const targetCard = opponentHand[opponentCardIndex];
-    const isCorrect = targetCard.value === guessedValue;
-
+    const isCorrect = opponentHand[opponentCardIndex][1] == guessedValue;
+    console.log(
+      "DEBUGGING GUESSING CARD",
+      opponentHand[opponentCardIndex][1],
+      guessedValue,
+      isCorrect,
+    );
     if (isCorrect) {
       // Reveal the guessed card
-      this.revealedCards[opponentIndex].add(
-        opponentHand[opponentCardIndex].communityIndex,
-      );
+      opponentHand[opponentCardIndex] =
+        opponentHand[opponentCardIndex].slice(0, 2) + "tft";
 
       // Check if opponent lost (all cards revealed)
-      if (this.revealedCards[opponentIndex].size === opponentHand.length) {
-        this.gameState = "finished";
-        return { correct: true, gameOver: true, winner: playerIndex };
-      }
+      const allRevealed = opponentHand.every((card) => card[2] === "t");
 
+      if (allRevealed) {
+        console.log("GAME OVER");
+        this.gameState = "finished";
+        return {
+          correct: true,
+          gameOver: true,
+          winner: playerIndex,
+        };
+      }
       // Player can continue guessing or end turn
-      return { correct: true, gameOver: false };
+      return {
+        correct: true,
+        gameOver: false,
+      };
     } else {
       // Reveal player's most recent card
       const playerHand = this.playerHands[playerIndex];
-      if (playerHand.length > 0) {
-        const mostRecentIndex = this.lastPlacedIndex[playerIndex];
-        const lastCardObj = playerHand[mostRecentIndex];
-        this.revealedCards[playerIndex].add(lastCardObj.communityIndex);
 
-        // Check if current player lost
-        if (this.revealedCards[playerIndex].size === playerHand.length) {
-          this.gameState = "finished";
-          return { correct: false, gameOver: true, winner: opponentIndex };
+      // Dealing with losing newly drawn card
+      for (let i = 0; i < playerHand.length; i++) {
+        if (playerHand[i][3] === "t") {
+          playerHand[i] = playerHand[i].slice(0, 2) + "tft";
+          break;
         }
       }
 
-      // End turn
-      this.currentPlayer = 1 - this.currentPlayer;
-      this.turnPhase = "draw";
-      return { correct: false, gameOver: false };
+      // Check if current player lost
+      const allRevealed = playerHand.every((card) => card[2] === "t");
+
+      if (allRevealed) {
+        console.log("GAME OVER");
+        this.gameState = "finished";
+        return {
+          correct: false,
+          gameOver: true,
+          winner: opponentIndex,
+        };
+      } else {
+        // Ending turn after a wrong guess
+        this.currentPlayerId = this.players[1 - playerIndex].id;
+
+        // Check if all community cards are drawn
+        const allDrawn = gameRoom.communityPile.every((card) => card[2] == "d");
+        console.log("allDRAWN is ", allDrawn);
+
+        if (allDrawn) {
+          console.log(
+            "[DEBUG] All community cards drawn. Skipping draw phase.",
+          );
+          gameRoom.turnPhase = "guess";
+        } else {
+          gameRoom.turnPhase = "draw";
+        }
+        return {
+          correct: false,
+          gameOver: false,
+        };
+      }
     }
   }
 
-  sortHand(hand) {
-    return hand.sort((a, b) => {
-      // Jokers can be anywhere, don't sort them
-      if (a.value === "joker" || b.value === "joker") return 0;
+  resetLastRevealedCard() {
+    console.log("[DEBUG] Last revealed card reset");
+    for (let playerIndex = 0; playerIndex <= 1; playerIndex++) {
+      const hand = this.playerHands[playerIndex];
+      for (let i = 0; i < hand.length; i++) {
+        const card = hand[i];
+        if (card.length === 5) {
+          // Set 5th character to 'f'
+          hand[i] = card.slice(0, 4) + "f" + card.slice(5);
+        } else {
+          console.log("[ERROR] Invalid card length ", card.length);
+        }
+      }
+    }
+  }
 
-      // Sort by value first
-      if (a.value !== b.value) {
-        return a.value - b.value;
+  sortInitialHand(hand) {
+    return hand.sort((a, b) => {
+      const order = "0123456789tv"; // Define the desired character order
+
+      const aValue = order.indexOf(a[1]);
+      const bValue = order.indexOf(b[1]);
+
+      if (aValue !== bValue) {
+        return aValue - bValue;
       }
 
-      // If same value, black comes before white
-      if (a.color === "black" && b.color === "white") return -1;
-      if (a.color === "white" && b.color === "black") return 1;
+      // Same value → black before white
+      if (a[0] === "b" && b[0] === "w") return -1;
+      if (a[0] === "w" && b[0] === "b") return 1;
 
       return 0;
     });
   }
 
-  getGameState() {
+  getLobbyState() {
     return {
-      gameState: this.gameState,
+      gameState: "lobby",
       players: this.players.map((p) => ({
         name: p.name,
         ready: p.ready,
         id: p.id,
       })),
-      currentPlayer: this.currentPlayer,
-      turnPhase: this.turnPhase,
-      communityPile: this.communityPile,
-      communityPileSize: this.communityPile.filter((c) => !c.drawn).length,
+    };
+  }
 
-      playerHands: this.playerHands.map((hand, index) =>
-        hand.map((card) => ({
-          ...card,
-          revealed: this.revealedCards[index].has(card.communityIndex),
-        })),
-      ),
+  maskCards(hand) {
+    return hand.map((card) => {
+      const chars = card.split(""); // Convert string to char array
+      const thirdChar = chars[2];
+
+      if (thirdChar === "f" || thirdChar == "d") {
+        chars[1] = "n"; // Change first char to 'n'
+        return chars.join(""); // Return modified string
+      } else if (thirdChar === "t") {
+        return card; // Leave it unchanged
+      } else {
+        console.error("[ERROR] Invalid third character in card: ", card);
+        return card; // Or return null/undefined if you want to drop it
+      }
+    });
+  }
+  updateGameState(playerId) {
+    const playerIndex = this.players.findIndex((p) => p.id === playerId);
+    console.log(
+      "[DEBUG] updateGameState() with this state: ",
+      this.gameState,
+      this.currentPlayerId,
+      this.turnPhase,
+      this.communityPile,
+      this.playerHands[playerIndex],
+      this.playerHands[1 - playerIndex],
+    );
+    if (playerIndex === -1) {
+      console.log("[ERROR] Player not found");
+      return;
+    }
+
+    return {
+      gameState: this.gameState,
+      currentPlayerId: this.currentPlayerId,
+      turnPhase: this.turnPhase,
+      communityPile: this.maskCards(this.communityPile),
+      myHand: this.playerHands[playerIndex],
+      oppHand: this.maskCards(this.playerHands[1 - playerIndex]),
     };
   }
 
   resetGame() {
     this.gameState = "lobby";
-    this.currentPlayer = 0;
+    this.currentPlayerId = null;
     this.communityPile = [];
     this.playerHands = [[], []];
     this.revealedCards = [new Set(), new Set()];
-    this.selectedCards = [[], []];
-    this.turnPhase = "draw";
-    this.players.forEach((p) => (p.ready = false));
+    this.selectedColors = [[], []];
+    this.turnPhase = null;
+    this.players = [];
   }
 }
+
+// BELOW THIS SHOULD BE "gameRoom" instead of using "this"
 
 // Single game room for now
 const gameRoom = new GameRoom();
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
+  io.emit("lobbyStateUpdate", gameRoom.getLobbyState());
 
-  // Join game
-  socket.on("joinGame", (data) => {
-    const success = gameRoom.addPlayer(socket, data.name);
-
-    if (success) {
-      socket.emit("joinSuccess", { playerId: socket.id });
-      io.emit("gameStateUpdate", gameRoom.getGameState());
-    } else {
-      socket.emit("joinFailed", { message: "Game is full" });
+  // Update player name
+  socket.on("updatePlayerName", (data) => {
+    console.log("Server received 'updatePlayerName");
+    const player = gameRoom.players.find((p) => p.id === socket.id);
+    if (player) {
+      player.name = data.name;
+      io.emit("lobbyStateUpdate", gameRoom.getLobbyState());
     }
   });
 
-  // Player ready
-  socket.on("playerReady", () => {
-    gameRoom.setPlayerReady(socket.id, true);
-    io.emit("gameStateUpdate", gameRoom.getGameState());
+  // Join game
+  socket.on("joinGame", (data) => {
+    console.log("[DEBUG] Server has received 'joinGame'");
+    const success = gameRoom.addPlayer(socket, data.name);
+
+    if (success) {
+      console.log("[DEBUG] Added a player successfully");
+      socket.emit("joinSuccess", { playerId: socket.id });
+      io.emit("lobbyStateUpdate", gameRoom.getLobbyState());
+    }
   });
 
   // Start game
   socket.on("startGame", () => {
     if (gameRoom.canStartGame()) {
       gameRoom.initializeGame();
-      io.emit("gameStateUpdate", gameRoom.getGameState());
+      gameRoom.players.forEach((player) => {
+        const playerId = player.id;
+        player.socket.emit(
+          "gameStateUpdate",
+          gameRoom.updateGameState(playerId),
+        );
+      });
+
       io.emit("gameStarted");
+    } else {
+      console.log(
+        "[ERROR] Start Game button enabled without two ready players",
+      );
     }
   });
 
@@ -453,30 +450,34 @@ io.on("connection", (socket) => {
 
     if (success) {
       // Delay update until both players have selected
+      console.log("[DEBUG] selectedColors[0] is ", gameRoom.selectedColors[0]);
+      console.log("[DEBUG] selectedColors[1] is ", gameRoom.selectedColors[1]);
       if (
-        gameRoom.selectedCards[0].length === 4 &&
-        gameRoom.selectedCards[1].length === 4
+        gameRoom.selectedColors[0].length === 4 &&
+        gameRoom.selectedColors[1].length === 4
       ) {
         gameRoom.dealInitialHands();
-        gameRoom.communityPile = gameRoom.createShuffledDeck();
-        gameRoom.gameState = "playing";
-        io.emit("gameStateUpdate", gameRoom.getGameState());
-        io.emit("gamePlaying");
-      } else {
-        socket.emit("partialSelectionAcknowledged", {
-          message: "Waiting for other player to finish selection.",
-        });
-      }
 
-      // Check if both players have selected
-      if (
-        gameRoom.selectedCards[0].length === 4 &&
-        gameRoom.selectedCards[1].length === 4
-      ) {
-        gameRoom.dealInitialHands();
-        gameRoom.communityPile = gameRoom.createShuffledDeck(); // NOW build the deck
+        // Add a joker and shuffle
+        gameRoom.whitePile.push("wjfff");
+        gameRoom.blackPile.push("bjfff");
+        gameRoom.communityPile = [...gameRoom.whitePile, ...gameRoom.blackPile];
+        gameRoom.shuffleArray(gameRoom.communityPile);
+        gameRoom.shuffleArray(gameRoom.communityPile);
+        gameRoom.shuffleArray(gameRoom.communityPile);
+        gameRoom.shuffleArray(gameRoom.communityPile);
+        gameRoom.shuffleArray(gameRoom.communityPile);
+
         gameRoom.gameState = "playing";
-        io.emit("gameStateUpdate", gameRoom.getGameState());
+        gameRoom.turnPhase = "draw";
+
+        gameRoom.players.forEach((player) => {
+          const playerId = player.id;
+          player.socket.emit(
+            "gameStateUpdate",
+            gameRoom.updateGameState(playerId),
+          );
+        });
         io.emit("gamePlaying");
       }
     }
@@ -484,45 +485,72 @@ io.on("connection", (socket) => {
 
   // Draw card
   socket.on("selectCardFromPile", (data) => {
-    console.log(
-      '[DEBUG] detecting "selectCardFromPile" on server.js: cardIndex is ',
-      data.cardIndex,
-    );
-    const drawnCard = gameRoom.drawCard(socket.id, data.cardIndex);
+    const drawnCard = gameRoom.drawCard(data.cardIndex);
 
     if (drawnCard) {
+      console.log("[DEBUG]: cardDrawn has been sent to the client ", drawnCard);
+      gameRoom.turnPhase = "place";
+      gameRoom.players.forEach((player) => {
+        const playerId = player.id;
+        player.socket.emit(
+          "gameStateUpdate",
+          gameRoom.updateGameState(playerId),
+        );
+      });
       socket.emit("cardDrawn", { card: drawnCard });
-      io.emit("gameStateUpdate", gameRoom.getGameState());
     }
   });
 
   // Place card
   socket.on("placeCard", (data) => {
-    const success = gameRoom.placeCard(socket.id, data.card, data.position);
+    console.log("placeCard on server called");
+
+    for (let i = 0; i < gameRoom.playerHands.length; i++) {
+      for (let j = 0; j < gameRoom.playerHands[i].length; j++) {
+        const card = gameRoom.playerHands[i][j];
+        if (card[3] === "t") {
+          // Replace third character with "f"
+          gameRoom.playerHands[i][j] = card.slice(0, 3) + "f" + card.slice(4);
+        }
+      }
+    }
+    const success = gameRoom.placeCard(data.card, data.position);
 
     if (success) {
-      io.emit("gameStateUpdate", gameRoom.getGameState());
+      // Mark a newly drawn card, unmark a previous one
+      console.log(
+        "placecard success, this is current player hand",
+        gameRoom.playerHands,
+      );
+      gameRoom.turnPhase = "guess";
+      gameRoom.players.forEach((player) => {
+        const playerId = player.id;
+        player.socket.emit(
+          "gameStateUpdate",
+          gameRoom.updateGameState(playerId),
+        );
+      });
     }
   });
 
   // Guess card
   socket.on("guessCard", (data) => {
-    const result = gameRoom.guessCard(
-      socket.id,
-      data.cardIndex,
-      data.guessedValue,
-    );
-
+    console.log("[DEBUG] guessCard received");
+    const result = gameRoom.guessCard(data.cardIndex, data.guessedValue);
     if (result) {
+      console.log("[DEBUG] sending 'GuessResult' and 'gameStateUpdate'");
       io.emit("guessResult", {
-        playerId: socket.id,
         correct: result.correct,
         gameOver: result.gameOver,
         winner: result.winner,
       });
-
-      io.emit("gameStateUpdate", gameRoom.getGameState());
-
+      gameRoom.players.forEach((player) => {
+        const playerId = player.id;
+        player.socket.emit(
+          "gameStateUpdate",
+          gameRoom.updateGameState(playerId),
+        );
+      });
       if (result.gameOver) {
         const winnerName = gameRoom.players[result.winner].name;
         io.emit("gameFinished", { winner: winnerName });
@@ -533,24 +561,60 @@ io.on("connection", (socket) => {
   // End turn (when player chooses not to continue guessing)
   socket.on("endTurn", () => {
     if (gameRoom.turnPhase === "guess") {
-      gameRoom.currentPlayer = 1 - gameRoom.currentPlayer;
-      gameRoom.turnPhase = "draw";
-      io.emit("gameStateUpdate", gameRoom.getGameState());
+      const playerIndex = gameRoom.players.findIndex(
+        (p) => p.id === gameRoom.currentPlayerId,
+      );
+      gameRoom.currentPlayerId = gameRoom.players[1 - playerIndex].id;
+
+      // Check if all community cards are drawn
+      const allDrawn = gameRoom.communityPile.every((card) => card[2] == "d");
+      console.log("allDRAWN is ", allDrawn);
+
+      if (allDrawn) {
+        console.log("[DEBUG] All community cards drawn. Skipping draw phase.");
+        gameRoom.turnPhase = "guess";
+      } else {
+        gameRoom.turnPhase = "draw";
+      }
+
+      gameRoom.players.forEach((player) => {
+        const playerId = player.id;
+        player.socket.emit(
+          "gameStateUpdate",
+          gameRoom.updateGameState(playerId),
+        );
+      });
     }
   });
 
   // New game
   socket.on("newGame", () => {
     gameRoom.resetGame();
-    io.emit("gameStateUpdate", gameRoom.getGameState());
+    gameRoom.players.forEach((player) => {
+      const playerId = player.id;
+      player.socket.emit("gameStateUpdate", gameRoom.updateGameState(playerId));
+    });
     io.emit("gameReset");
   });
 
   // Disconnect
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+    const playerId = gameRoom.players.findIndex((p) => p.id === socket.id);
+
+    if (playerId !== -1) {
+      console.log("Disconnected player was in the game — resetting.");
+      gameRoom.resetGame(); // custom method to reset game state
+      gameRoom.players.forEach((player) => {
+        const playerId = player.id;
+        player.socket.emit(
+          "gameStateUpdate",
+          gameRoom.updateGameState(playerId),
+        );
+      });
+      io.emit("gameReset");
+    }
     gameRoom.removePlayer(socket.id);
-    io.emit("gameStateUpdate", gameRoom.getGameState());
   });
 });
 

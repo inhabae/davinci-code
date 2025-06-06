@@ -79,20 +79,7 @@
             <div id="selectedCount" class="selected-count">Selected: 0/4</div>
             <button id="addToHandBtn" class="btn" disabled>Add to Hand</button>
           </div>
-          <!-- Pre-declared container for showing drawn card -->
-          <div id="drawnCardContainer" class="hidden">
-            <div style="font-weight: bold; margin-bottom: 10px">Drawn Card</div>
-            <div id="drawnCardDisplay" class="card"></div>
-            <div id="drawnCardInstruction"></div>
-            <button
-              class="btn"
-              id="confirmPlaceBtn"
-              style="margin-top: 10px"
-              disabled
-            >
-              Confirm Placement
-            </button>
-          </div>
+
           <!-- Game phase controls: draw, guess, end turn -->
           <div id="gameControls" class="control-section hidden">
             <div class="control-title">Actions</div>
@@ -110,7 +97,7 @@
                 <input
                   type="text"
                   id="guessValueInput"
-                  placeholder="Value (0-11 or -)"
+                  placeholder="Value (0-11 or - for joker)"
                 />
                 <button id="submitGuessBtn" class="btn">Guess</button>
               </div>
@@ -138,16 +125,18 @@
         constructor() {
           // Initialize Socket.io connection
           this.socket = io();
-          this.myName = "";
-          this.oppName = "";
-          this.playerId = null;
-          this.gameState = null; // getGameState() in server.js
-          this.selectedCards = [];
-          this.handSubmitted = false; // prevent multiple "Add to Hand"
-          this.drawnCard = null; // a string of drawnCard e.g. w1fff
-          this.cardPlacementPosition = null; // arrow index for placing a card into hand
-          this.selectedOpponentCardIndex = -1; // index for guessing opponent card
+          this.playerId = null; // Unique ID assigned by server
+          this.playerIndex = -1; // 0 or 1 once joined
+          this.gameState = null; // Current game state
+          this.selectedCards = []; // For setup: indices of chosen cards
+          this.drawnCard = null; // The card just drawn from community
+          this.selectedOpponentCard = -1; // Index of opponent's card during guess
 
+          // Track communityIndex values for highlighting the latest placed/revealed cards
+          this.lastPlacedCommunityIndex = null;
+          this.lastRevealedCommunityIndex = null;
+
+          // State to enforce that at least one correct guess must happen before ending turn
           this.hasMadeFirstCorrectGuess = false;
 
           // Set up event listeners on buttons and inputs
@@ -157,108 +146,97 @@
         }
 
         initializeEventListeners() {
-          // Phase 1: lobby
+          // Lobby: Sit Down button
           document
             .getElementById("sitDownBtn")
             .addEventListener("click", () => this.sitDown());
+          // Lobby: Start Game button
           document
             .getElementById("startGameBtn")
             .addEventListener("click", () => this.startGame());
+          // Allow pressing Enter in name input to sit down
           document
             .getElementById("playerNameInput")
             .addEventListener("keypress", (e) => {
-              if (e.key === "Enter") this.updatePlayerName();
+              if (e.key === "Enter") this.sitDown();
             });
 
-          // Phase 2: setup
+          // Setup phase: Add to Hand button
           document
             .getElementById("addToHandBtn")
             .addEventListener("click", () => this.addToHand());
-
-          // Phase 3: inGame— Guess
+          // Guess phase: Submit Guess button
           document
             .getElementById("submitGuessBtn")
             .addEventListener("click", () => this.submitGuess());
-
+          // Guess phase: End Turn button
           document
             .getElementById("endTurnBtn")
             .addEventListener("click", () => this.endTurn());
-
-          document
-            .getElementById("guessValueInput")
-            .addEventListener("input", (e) => {
-              const input = e.target.value.trim();
-              // Allow only 0–11 or "-"
-              if (!/^(0|[1-9]|1[01]|-)$/.test(input)) {
-                e.target.value = "";
-              }
-            });
-
-          // Phase 4: gameOver
+          // Game Over: New Game button
           document
             .getElementById("newGameBtn")
             .addEventListener("click", () => this.newGame());
+
+          // Validate guess input to ensure only valid numbers or "-" for joker
+          document
+            .getElementById("guessValueInput")
+            .addEventListener("input", (e) => {
+              const value = parseInt(e.target.value);
+              if (value < 0 || value > 11) {
+                e.target.value = "";
+              }
+            });
         }
 
         setupSocketEvents() {
           // Fired when server acknowledges join
           this.socket.on("joinSuccess", (data) => {
-            console.log("[DEBUG] Client received 'joinSuccess'");
+            console.log("[DEBUG] Client socket has received 'joinSuccess'");
             this.playerId = data.playerId;
+            this.showMessage("Joined game successfully!", 3000);
           });
 
-          // Whenever server sends updated lobby state
-          this.socket.on("lobbyStateUpdate", (lobbyState) => {
-            this.gameState = lobbyState;
-            const me = lobbyState.players.find((p) => p.id === this.playerId);
-            const opponent = lobbyState.players.find(
-              (p) => p.id !== this.playerId,
-            );
-
-            if (me) this.myName = me.name;
-            if (opponent) this.oppName = opponent.name;
-            console.log("My Name:", this.myName);
-            console.log("Opponent Name:", this.oppName);
-
-            console.log("[DEBUG] Client received 'lobbyStateUpdate'");
-            this.updateLobby();
+          // Fired if join fails (e.g., already two players)
+          this.socket.on("joinFailed", (data) => {
+            console.log("[DEBUG] Client socket has received 'joinFailed'");
+            this.showMessage(data.message, 3000);
           });
 
           // Whenever server sends updated game state
           this.socket.on("gameStateUpdate", (state) => {
-            this.gameState = state;
             console.log("[DEBUG] Client socket has received 'gameStateUpdate'");
+            console.log(state);
+            this.gameState = state;
             this.updateUI();
           });
 
           // When both players have indicated ready and server starts game
           this.socket.on("gameStarted", () => {
-            document.getElementById("setupControls").classList.remove("hidden");
-            document.getElementById("gameControls").classList.add("hidden");
+            this.showGameTable();
             this.showMessage("Game started! Select 4 cards.", 3000);
-            this.updateUI();
           });
 
           // Transition into "playing" phase after initial setup
           this.socket.on("gamePlaying", () => {
-            document.getElementById("setupControls").classList.add("hidden");
-            document.getElementById("gameControls").classList.remove("hidden");
             this.showMessage("All players ready! Game begins!", 2000);
           });
 
           // A card was just drawn from community pile
           this.socket.on("cardDrawn", (data) => {
-            console.log("[DEBUG]: cardDrawn ", data.card);
+            console.log("[DEBUG]: cardDrawn has been received by the client.");
             this.drawnCard = data.card;
             // Notify player what card they drew
-            // this.showMessage(`Drew ${this.formatCardValue(data.card)}`, 2000);
+            this.showMessage(`Drew ${this.formatCardValue(data.card)}`, 2000);
             // Update controls (e.g., show placement UI if in place phase)
-            this.updatePlaying();
+            this.updateGameControls();
           });
 
           // Server responds with whether guess was correct and which card was revealed
           this.socket.on("guessResult", (data) => {
-            console.log("[DEBUG] guessResult received", data);
+            // Store the communityIndex of the card just revealed
+            this.lastRevealedCommunityIndex = data.revealedCommunityIndex;
+
             if (data.correct) {
               this.showMessage("Correct guess! Continue or end turn.", 3000);
               this.hasMadeFirstCorrectGuess = true; // Allow "End Turn" button
@@ -270,6 +248,7 @@
             }
 
             // Re-render to highlight only the last revealed card in red
+            this.updateGameControls();
             this.updateUI();
           });
 
@@ -280,21 +259,11 @@
 
           // Reset the client state when server resets game
           this.socket.on("gameReset", () => {
-            console.log("Client received 'gameReset");
             this.resetGame();
           });
         }
 
         /****** Client Actions (emitting events) ******/
-
-        isMyTurn() {
-          return this.gameState.currentPlayerId === this.playerId;
-        }
-        updatePlayerName() {
-          const name =
-            document.getElementById("playerNameInput").value.trim() || null;
-          this.socket.emit("updatePlayerName", { name });
-        }
 
         sitDown() {
           // Get the entered name (or use null if empty)
@@ -319,14 +288,12 @@
               cardIndices: this.selectedCards,
             });
             // Clear local selection
+            this.selectedCards = [];
             this.updateSelectedCount();
-            document.getElementById("addToHandBtn").disabled = true;
-            this.handSubmitted = true;
           }
         }
 
         selectCardFromPile(cardIndex) {
-          console.log("[DEBUG] selectCardFromPile() called");
           // Emit selection request for community card at given index
           this.socket.emit("selectCardFromPile", { cardIndex });
           if (this.drawnCard) {
@@ -342,16 +309,16 @@
         submitGuess() {
           // Read the guess value input
           const guessValue = document.getElementById("guessValueInput").value;
-          if (this.selectedOpponentCardIndex >= 0 && guessValue !== "") {
+          if (this.selectedOpponentCard >= 0 && guessValue !== "") {
             // Convert "-" to "joker" or parse integer
             const value = guessValue === "-" ? "joker" : parseInt(guessValue);
             this.socket.emit("guessCard", {
-              cardIndex: this.selectedOpponentCardIndex,
+              cardIndex: this.selectedOpponentCard,
               guessedValue: value,
             });
             // Clear input and selection
             document.getElementById("guessValueInput").value = "";
-            this.selectedOpponentCardIndex = -1;
+            this.selectedOpponentCard = -1;
             this.updateOpponentCardSelection();
           }
         }
@@ -368,11 +335,14 @@
         /****** UI Updates Based on gameState ******/
 
         updateUI() {
-          console.log(
-            "[DEBUG] updateUI() called in game state ",
-            this.gameState,
-          );
           if (!this.gameState) return;
+
+          // Determine our playerIndex within the players array
+          if (this.gameState.players.length > 0) {
+            this.playerIndex = this.gameState.players.findIndex(
+              (p) => p.id === this.playerId,
+            );
+          }
 
           // Branch UI update based on current gameState property
           if (this.gameState.gameState === "lobby") {
@@ -385,14 +355,6 @@
         }
 
         updateLobby() {
-          if (this.gameState.gameState !== "lobby") {
-            console.log(
-              "[ERROR] updateLobby() called while not in lobby phase, ",
-              this.gameState.gameState,
-            );
-            return;
-          }
-
           // Show lobby div, hide game table
           document.getElementById("lobbyScreen").style.display = "flex";
           document.getElementById("gameTable").style.display = "none";
@@ -431,12 +393,7 @@
           const isJoined = this.gameState.players.some(
             (p) => p.id === this.playerId,
           );
-
-          console.log(
-            "[DEBUG] players length is ",
-            this.gameState.players.length,
-          );
-          if (this.gameState.players.length == 2 && !isJoined) {
+          if (this.gameState.players.length >= 2 && !isJoined) {
             document.getElementById("joinControls").style.display = "none";
             document
               .getElementById("gameInProgress")
@@ -449,42 +406,28 @@
         }
 
         updateSetup() {
-          console.log("[DEBUG] updateSetup() called");
-          document.querySelector(".game-info").style.display = "none";
-          document.getElementById("currentTurn").style.display = "none";
-          document.getElementById("turnPhase").style.display = "none";
-          document.getElementById("playerHand0").style.display = "none";
-          document.getElementById("playerHand1").style.display = "none";
           // Transition from lobby to setup: show game table
           this.showGameTable();
-          document.getElementById("setupControls").classList.remove("hidden");
+          // Render community pile and player hands (empty initially)
+          this.renderCommunityPile();
+          this.renderPlayerHands();
 
-          // Hide in-game elements that shouldn't be visible yet
+          // Show selection controls, hide game controls
+          document.getElementById("setupControls").classList.remove("hidden");
           document.getElementById("gameControls").classList.add("hidden");
 
-          // document.getElementById("playerHand1").style.display = "none";
-
-          this.renderCommunityPile();
+          // Update the “Selected: x/4” counter
           this.updateSelectedCount();
         }
 
         updatePlaying() {
-          console.log(
-            "[DEBUG] updatePlaying() called at phase, ",
-            this.gameState.turnPhase,
-          );
           // In play phase: update pile, hands, and info texts
-          this.updateGameInfo();
-          this.updateGameControls();
           this.renderCommunityPile();
           this.renderPlayerHands();
+          this.updateGameInfo();
+          this.updateGameControls();
 
           // Hide setup controls, show game controls
-          document.querySelector(".game-info").style.display = "block";
-          document.getElementById("currentTurn").style.display = "block";
-          document.getElementById("turnPhase").style.display = "block";
-          document.getElementById("playerHand0").style.display = "flex";
-          document.getElementById("playerHand1").style.display = "flex";
           document.getElementById("setupControls").classList.add("hidden");
           document.getElementById("gameControls").classList.remove("hidden");
         }
@@ -498,17 +441,12 @@
         /****** Rendering Community Pile ******/
 
         renderCommunityPile() {
-          // console.log("[DEBUG] renderCommunityPile() called");
           const pile = document.getElementById("communityPile");
           pile.innerHTML = ""; // Clear out existing cards
 
           // Setup phase: show placeholders for X community slots
-          // console.log(
-          //   "[DEBUG] renderCommunityPile(): gameState is ",
-          //   this.gameState.gameState,
-          // );
           if (this.gameState.gameState === "setup") {
-            for (let i = 0; i < 24; i++) {
+            for (let i = 0; i < this.gameState.communityPileSize; i++) {
               const card = document.createElement("div");
               card.className = `card community-card ${
                 this.selectedCards.includes(i) ? "selected" : ""
@@ -517,51 +455,42 @@
               card.style.background = i % 2 === 0 ? "white" : "#333";
               card.textContent = "?";
               // Clicking toggles selection
-              if (!this.handSubmitted) {
-                card.addEventListener("click", () =>
-                  this.toggleCardSelection(i),
-                );
-              }
+              card.addEventListener("click", () => this.toggleCardSelection(i));
               pile.appendChild(card);
             }
           } else {
             // Playing phase: actual communityPile data exists
-
-            console.log("[DEBUG] Rendering community pile in playing phase");
             const pileData = this.gameState.communityPile || [];
 
             for (let i = 0; i < pileData.length; i++) {
               const cardData = pileData[i];
 
               // If already drawn, show an invisible placeholder to keep layout
-              if (cardData[2] === "d") {
+              if (cardData.drawn) {
                 const placeholder = document.createElement("div");
                 placeholder.className = "card community-card";
                 placeholder.style.opacity = 0;
-                placeholder.style.pointerEvents = "none"; // ✅ block interaction
-                placeholder.style.cursor = "default"; // ✅ prevent hover effect
                 pile.appendChild(placeholder);
                 continue;
               }
 
               const card = document.createElement("div");
               card.className = "card community-card";
-              card.style.background = cardData[0] === "w" ? "white" : "#333";
+              card.style.background =
+                cardData.color === "white" ? "white" : "#333";
               card.textContent = "?";
 
               // If it's our turn and in 'draw' phase, allow clicking to draw
-
-              console.log(
-                "[DEBUG] Rendering... phase is ",
-                this.gameState.turnPhase,
-                this.isMyTurn(),
-              );
-              if (this.gameState.turnPhase === "draw" && this.isMyTurn()) {
+              if (
+                this.gameState.turnPhase === "draw" &&
+                this.playerIndex === this.gameState.currentPlayer
+              ) {
                 card.style.cursor = "pointer";
                 card.addEventListener("click", () =>
                   this.selectCardFromPile(i),
                 );
               }
+
               pile.appendChild(card);
             }
           }
@@ -601,13 +530,13 @@
         }
 
         /****** Rendering Player Hands ******/
+
         renderPlayerHands() {
-          console.log("[DEBUG] Rendering player Hands...");
-          const hands = [this.gameState.myHand, this.gameState.oppHand];
-          const playerLabels = [`${this.myName} (You)`, this.oppName];
+          // Always display current player on bottom (display index 0)
+          const displayOrder = [this.playerIndex, 1 - this.playerIndex];
 
           for (let displayIdx = 0; displayIdx < 2; displayIdx++) {
-            const hand = hands[displayIdx] || [];
+            const actualPlayerIdx = displayOrder[displayIdx];
             const handElement = document.getElementById(
               `playerHand${displayIdx}`,
             );
@@ -617,100 +546,80 @@
             const cards = handElement.querySelectorAll(".card");
             cards.forEach((card) => card.remove());
 
-            // Set label (use name if available, otherwise fallback)
-            label.textContent = playerLabels[displayIdx];
+            // Set the label to player name
+            if (this.gameState.players[actualPlayerIdx]) {
+              const player = this.gameState.players[actualPlayerIdx];
+              const displayName =
+                player.id === this.playerId
+                  ? `${player.name} (You)`
+                  : player.name;
+              label.textContent = displayName;
+            }
 
-            // Render each card in the hand
+            // Render each card in that player's hand
+            const hand = this.gameState.playerHands[actualPlayerIdx] || [];
             hand.forEach((card, cardIdx) => {
               const cardElement = this.createCardElement(
                 card,
-                displayIdx, // 0 = myHand, 1 = oppHand
+                actualPlayerIdx,
                 cardIdx,
               );
               handElement.appendChild(cardElement);
             });
-            console.log("[DEBUG] handElement contains, ", handElement);
           }
         }
 
-        createCardElement(cardStr, displayIdx, cardIdx) {
+        createCardElement(card, actualPlayerIdx, cardIdx) {
           const cardElement = document.createElement("div");
-
-          const color = cardStr[0]; // 'w' or 'b'
-          const valueChar = cardStr[1]; // '0'-'9', 't', 'e', 'j'
-          const revealedChar = cardStr[2]; // 't' or 'f'
-
-          // Base class for card color
-          cardElement.className = `card ${color === "w" ? "white" : "black"}`;
-
+          // Base classes: .card and color (white/black)
+          cardElement.className = `card ${card.color}`;
           // If this card was the last placed to hand, add 'newly-drawn' class
-          if (cardStr[2] != "f") {
-            if (displayIdx === 0) {
-              cardElement.classList.add("revealed-own");
-            } else {
-              cardElement.classList.add("revealed-opp");
-            }
-          } else {
-            if (displayIdx === 0) {
-              cardElement.classList.add("hidden-own");
-            } else {
-              cardElement.classList.add("hidden-opp");
-            }
-          }
-          if (cardStr[3] === "t") {
+          if (card.communityIndex === this.lastPlacedCommunityIndex) {
             cardElement.classList.add("newly-drawn");
-          }
-          if (cardStr[4] === "t") {
-            cardElement.classList.add("last-revealed");
+            console.log("[DEBUG]: Added newly-drawn.");
           }
 
-          const isOwn = displayIdx === 0;
-          const isRevealed = revealedChar === "t";
+          // Determine if this card belongs to us
+          const isOwn =
+            this.gameState.players[actualPlayerIdx]?.id === this.playerId;
+          const isRevealed = card.revealed;
           const isHidden = !isOwn && !isRevealed;
 
           if (isHidden) {
+            // Show card back when not ours and not yet revealed
             cardElement.classList.add("card-back");
-            cardElement.style.background = color === "w" ? "white" : "#333";
-            cardElement.style.color = color === "w" ? "#999" : "#666";
+            cardElement.style.background =
+              card.color === "white" ? "white" : "#333";
+            cardElement.style.color = card.color === "white" ? "#999" : "#666";
             cardElement.textContent = "?";
           } else {
-            cardElement.textContent = this.formatCardValue(valueChar);
+            // If face-up (ours or revealed), show actual value
+            cardElement.textContent = this.formatCardValue(card);
           }
 
-          // Highlight if this was the last revealed card
-          if (cardStr[4] === "t") {
-            cardElement.classList.add("last-revealed");
-          }
-
-          // If it's an opponent card, during guess phase, and it's our turn → clickable
-          if (
-            displayIdx === 1 &&
-            cardStr[2] == "f" &&
+          if (isRevealed) {
+            // If revealed, highlight only if it matches lastRevealedCommunityIndex
+            if (card.communityIndex === this.lastRevealedCommunityIndex) {
+              cardElement.classList.add("last-revealed");
+            }
+          } else if (
+            !isOwn &&
+            !isRevealed &&
             this.gameState.gameState === "playing" &&
             this.gameState.turnPhase === "guess" &&
-            this.isMyTurn()
+            this.playerIndex === this.gameState.currentPlayer
           ) {
+            // During guess phase on our turn: allow clicking opponent's card
             cardElement.style.cursor = "pointer";
+
             cardElement.addEventListener("click", () => {
-              this.selectedOpponentCardIndex = cardIdx;
+              this.selectedOpponentCard = cardIdx;
+              this.selectedOpponentActualIndex = actualPlayerIdx;
               this.updateOpponentCardSelection();
             });
           }
 
           return cardElement;
-        }
-
-        formatCardValue(valueChar) {
-          switch (valueChar) {
-            case "j":
-              return "-";
-            case "t":
-              return "10";
-            case "v":
-              return "11";
-            default:
-              return valueChar;
-          }
         }
 
         updateOpponentCardSelection() {
@@ -725,23 +634,37 @@
             // Highlight the one clicked with 'selected' class
             card.classList.toggle(
               "selected",
-              idx === this.selectedOpponentCardIndex,
+              idx === this.selectedOpponentCard,
             );
+
+            // Debug: print out communityIndex values for debugging
+            console.log(card.communityIndex, this.lastPlacedCommunityIndex);
+            if (card.communityIndex === this.lastPlacedCommunityIndex) {
+              // We want to outline the latest placed card with the 'newly-drawn' class,
+              // but this belongs in createCardElement. If needed, handle in CSS.
+            }
           });
+        }
+
+        formatCardValue(card) {
+          // Show '-' for joker, otherwise numeric value
+          return card.value === "joker" ? "-" : card.value.toString();
         }
 
         /****** Update Turn Info and Controls ******/
 
         updateGameInfo() {
-          console.log("[DEBUG] updateGameInfo() called");
           const currentTurnElement = document.getElementById("currentTurn");
           const turnPhaseElement = document.getElementById("turnPhase");
 
           // Display name of current player
-          if (this.gameState.currentPlayerId) {
-            currentTurnElement.textContent = this.isMyTurn()
+          if (this.gameState.players[this.gameState.currentPlayer]) {
+            const currentPlayer =
+              this.gameState.players[this.gameState.currentPlayer];
+            const isYourTurn = currentPlayer.id === this.playerId;
+            currentTurnElement.textContent = isYourTurn
               ? "Your Turn"
-              : `${this.oppName}'s Turn`;
+              : `${currentPlayer.name}'s Turn`;
           }
 
           // Map the internal phase to human-readable text
@@ -750,13 +673,12 @@
             place: "Place the drawn card",
             guess: "Guess opponent's card",
           };
-          turnPhaseElement.textContent = this.isMyTurn()
-            ? phaseText[this.gameState.turnPhase]
-            : "";
+          turnPhaseElement.textContent =
+            phaseText[this.gameState.turnPhase] || "";
         }
 
         updateGameControls() {
-          const isMyTurn = this.isMyTurn();
+          const isMyTurn = this.playerIndex === this.gameState.currentPlayer;
           const phase = this.gameState.turnPhase;
 
           // Show/hide “Click to Draw” instruction
@@ -791,80 +713,115 @@
         /****** Card Placement (after drawing) ******/
 
         showCardPlacementUI() {
-          const container = document.getElementById("drawnCardContainer");
-          if (!container) return;
+          // If UI container already exists, skip
+          if (document.getElementById("drawnCardContainer")) return;
 
-          container.classList.remove("hidden");
+          // Create a container in control panel for showing drawn card
+          const controlPanel = document.getElementById("controlPanel");
+          const container = document.createElement("div");
+          container.id = "drawnCardContainer";
+          container.style.cssText = `
+            margin-bottom: 15px;
+            padding: 15px;
+            border: 2px solid #ffd700;
+            border-radius: 10px;
+            background: rgba(255, 215, 0, 0.1);
+            text-align: center;
+          `;
 
-          const display = document.getElementById("drawnCardDisplay");
-          const instruction = document.getElementById("drawnCardInstruction");
+          // Check if drawn card is a joker
+          const currentHand =
+            this.gameState.playerHands[this.playerIndex] || [];
+          const isJoker = this.drawnCard.value === "joker";
+          if (!this.cardPlacementPosition) {
+            // For non-joker, precompute correct sorted position
+            if (!isJoker) {
+              this.cardPlacementPosition = this.getFixedPosition(
+                this.drawnCard,
+                currentHand,
+              );
+            } else {
+              this.cardPlacementPosition = null;
+            }
+          }
 
-          // Update card appearance
-          display.className = `card ${this.drawnCard[0] === "w" ? "white" : "black"}`;
-          display.textContent = this.formatCardValue(this.drawnCard[1]);
+          // Build inner HTML to show drawn card and instructions
+          container.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 10px;">Drawn Card</div>
+            <div class="card ${this.drawnCard.color}" style="display: inline-block;">
+              ${this.formatCardValue(this.drawnCard)}
+            </div>
+            ${
+              isJoker
+                ? `<div>Choose position with arrows, then click confirm</div>`
+                : `<div>Card will be placed in correct position</div>`
+            }
+            <!-- Confirm starts disabled; will be enabled when arrow clicked -->
+            <button class="btn" id="confirmPlaceBtn" style="margin-top: 10px;" disabled>Confirm Placement</button>
+          `;
 
-          instruction.innerHTML =
-            "Choose position with arrows, then click confirm";
+          // Insert container at top of control panel
+          controlPanel.insertBefore(container, controlPanel.firstChild);
 
+          // Listen for confirm placement click
           document
             .getElementById("confirmPlaceBtn")
             .addEventListener("click", () => this.confirmCardPlacement());
 
+          // Show placement arrows on hand
           this.showPlacementArrows();
         }
 
         showPlacementArrows() {
-          document.getElementById("confirmPlaceBtn").disabled = true;
           const myHandElement = document.getElementById("playerHand0");
+          const currentHand =
+            this.gameState.playerHands[this.playerIndex] || [];
+
           // Remove any previous arrows
           const existingArrows =
             myHandElement.querySelectorAll(".placement-arrow");
           existingArrows.forEach((arrow) => arrow.remove());
 
-          console.log("DEBUGBGGGGG ", this.gameState.myHand);
           // Compute all valid insertion indices (accounts for joker and color/value rules)
-          const validPositions = this.getPossiblePlacements(
+          const positions = this.getPossiblePlacements(
             this.drawnCard,
-            this.gameState.myHand,
+            currentHand,
           );
-          const handLength = this.gameState.myHand.length;
-
-          for (let pos = 0; pos <= handLength; pos++) {
-            const isValid = validPositions.includes(pos);
-            this.createArrowAtPosition(myHandElement, pos, handLength, isValid);
-          }
+          // Create an arrow at each valid position
+          positions.forEach((pos) => {
+            this.createArrowAtPosition(myHandElement, pos, currentHand.length);
+          });
 
           // If there's exactly one possible spot, preselect it and enable Confirm immediately
-          if (validPositions.length === 1) {
-            console.log(
-              "[DEBUG] card placement position = ",
-              validPositions[0],
-            );
-            this.cardPlacementPosition = validPositions[0];
+          if (positions.length === 1) {
+            this.cardPlacementPosition = positions[0];
             this.updateArrowSelection();
             document.getElementById("confirmPlaceBtn").disabled = false;
           }
         }
-        createArrowAtPosition(handElement, position, handLength, isValid) {
+
+        createArrowAtPosition(handElement, position, handLength) {
           const arrow = document.createElement("div");
           arrow.className = "placement-arrow";
-          arrow.innerHTML = "▼";
-          arrow.setAttribute("data-position", position);
-          arrow.setAttribute("data-valid", isValid); // for later reference
+          arrow.innerHTML = "▼"; // Downward arrow icon
+          arrow.style.cssText = `
+            position: absolute;
+            top: -20px;
+            font-size: 20px;
+            color: gold;
+            z-index: 30;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            cursor: pointer;
+          `;
 
-          if (isValid) {
-            arrow.addEventListener("click", () => {
-              this.cardPlacementPosition = position;
-              this.updateArrowSelection();
-              document.getElementById("confirmPlaceBtn").disabled = false;
-            });
-            arrow.style.cursor = "pointer";
-          } else {
-            arrow.style.opacity = 0.3;
-            arrow.style.pointerEvents = "none"; // visually disabled
-          }
+          // Clicking an arrow selects that placement
+          arrow.addEventListener("click", () => {
+            this.cardPlacementPosition = position;
+            this.updateArrowSelection();
+            document.getElementById("confirmPlaceBtn").disabled = false;
+          });
 
-          // Position the arrow
+          // Position the arrow above the correct slot in the hand
           const cards = handElement.querySelectorAll(
             ".card:not(.placement-arrow)",
           );
@@ -875,9 +832,10 @@
                 ? "translateX(-50%)"
                 : "none";
           } else if (position >= handLength) {
+            const lastCard = cards[cards.length - 1];
             arrow.style.right = "-25px";
           } else {
-            const cardWidth = 68;
+            const cardWidth = 68; // assumption: card width + margin
             arrow.style.left = `${position * cardWidth - 15}px`;
           }
 
@@ -885,34 +843,24 @@
         }
 
         updateArrowSelection() {
+          // Highlight the selected arrow in red and enlarge it slightly
           const arrows = document.querySelectorAll(".placement-arrow");
-          arrows.forEach((arrow) => {
-            const pos = parseInt(arrow.getAttribute("data-position"), 10);
-            const isValid = arrow.getAttribute("data-valid") === "true";
-            const isSelected = pos === this.cardPlacementPosition;
-            const isOnlyValid = arrows.length === 1;
-
-            if (isValid) {
-              arrow.style.color =
-                isSelected || isOnlyValid ? "#ff4444" : "#ffd700";
-              arrow.style.fontSize =
-                isSelected || isOnlyValid ? "24px" : "20px";
-            } else {
-              arrow.style.color = "#999999";
-              arrow.style.fontSize = "18px";
-            }
+          arrows.forEach((arrow, index) => {
+            arrow.style.color =
+              index === this.cardPlacementPosition ? "#ff4444" : "#ffd700";
+            arrow.style.fontSize =
+              index === this.cardPlacementPosition ? "24px" : "20px";
           });
         }
 
         hideCardPlacementUI() {
+          // Remove the drawn card container and any arrows/indicators
           const container = document.getElementById("drawnCardContainer");
           if (container) {
-            container.classList.add("hidden");
+            container.remove();
           }
-
           const arrows = document.querySelectorAll(".placement-arrow");
           arrows.forEach((arrow) => arrow.remove());
-
           this.cardPlacementPosition = null;
         }
 
@@ -920,73 +868,137 @@
 
         getPossiblePlacements(card, currentHand) {
           const placements = [];
+          const isJokerCard = card.value === "joker";
 
-          // Joker to place? Can go anywhere
-          if (card[1] === "j") {
+          // If drawn card is Joker → it can go anywhere
+          if (isJokerCard) {
             for (let i = 0; i <= currentHand.length; i++) {
               placements.push(i);
             }
             return placements;
           }
 
+          // For non-joker, find valid insertion slots based on numeric value and color rules
           for (let i = 0; i <= currentHand.length; i++) {
-            const left = getNonJokerLeft(currentHand, i - 1);
-            const right = getNonJokerRight(currentHand, i);
+            // Case A: placing at front (i === 0)
+            if (i === 0) {
+              const rightCard = currentHand[0];
+              // Conditions to place at front:
+              //   a) right neighbor is a joker
+              //   b) drawn.value < right.value
+              //   c) drawn.value == right.value AND drawn is black & right is white
+              if (
+                rightCard.value === "joker" ||
+                card.value < rightCard.value ||
+                (card.value === rightCard.value &&
+                  card.color === "black" &&
+                  rightCard.color === "white")
+              ) {
+                placements.push(i);
+              }
+              continue;
+            }
 
-            const canPlaceLeft = !left || isValidLeftNeighbor(left, card);
-            const canPlaceRight = !right || isValidRightNeighbor(card, right);
+            // Case B: placing at end (i === hand.length)
+            if (i === currentHand.length) {
+              const leftCard = currentHand[i - 1];
+              // Conditions to place at end:
+              //   a) left neighbor is a joker
+              //   b) drawn.value > left.value
+              //   c) drawn.value == left.value AND drawn is white & left is black
+              if (
+                leftCard.value === "joker" ||
+                card.value > leftCard.value ||
+                (card.value === leftCard.value &&
+                  card.color === "white" &&
+                  leftCard.color === "black")
+              ) {
+                placements.push(i);
+              }
+              continue;
+            }
 
-            if (canPlaceLeft && canPlaceRight) {
+            // Case C: placing in the middle (0 < i < hand.length)
+            const leftCard = currentHand[i - 1];
+            const rightCard = currentHand[i];
+            const leftIsJoker = leftCard.value === "joker";
+            const rightIsJoker = rightCard.value === "joker";
+
+            // a) If either neighbor is a joker, can place between them
+            if (leftIsJoker || rightIsJoker) {
               placements.push(i);
+              continue;
+            }
+
+            const leftVal = leftCard.value;
+            const rightVal = rightCard.value;
+
+            // b) If drawn value strictly between neighbors
+            if (card.value > leftVal && card.value < rightVal) {
+              placements.push(i);
+              continue;
+            }
+
+            // c) If drawn.value == leftVal: allow if drawn is black & left is white
+            if (
+              card.value === leftVal &&
+              card.color === "black" &&
+              leftCard.color === "white"
+            ) {
+              placements.push(i);
+              continue;
+            }
+
+            // d) If drawn.value == rightVal: allow if drawn is white & right is black
+            if (
+              card.value === rightVal &&
+              card.color === "white" &&
+              rightCard.color === "black"
+            ) {
+              placements.push(i);
+              continue;
             }
           }
 
-          return placements;
+          // Return sorted, unique placements
+          return Array.from(new Set(placements)).sort((a, b) => a - b);
+        }
 
-          // Skip jokers to the left
-          function getNonJokerLeft(hand, i) {
-            while (i >= 0 && hand[i][1] === "j") i--;
-            return hand[i] || null;
-          }
+        getFixedPosition(card, currentHand) {
+          // Finds the correct sorted insertion index for a non-joker card
+          let position = 0;
+          for (const handCard of currentHand) {
+            if (handCard.value === "joker") continue;
 
-          // Skip jokers to the right
-          function getNonJokerRight(hand, i) {
-            while (i < hand.length && hand[i][1] === "j") i++;
-            return hand[i] || null;
-          }
-
-          function isValidLeftNeighbor(leftCard, newCard) {
-            if (leftCard[1] < newCard[1]) return true;
-            if (leftCard[1] === newCard[1]) {
-              return leftCard[0] < newCard[0]; // b < w
+            // If drawn should come before handCard, break
+            if (
+              card.value < handCard.value ||
+              (card.value === handCard.value &&
+                card.color === "black" &&
+                handCard.color === "white")
+            ) {
+              break;
             }
-            return false;
+            position++;
           }
-
-          function isValidRightNeighbor(newCard, rightCard) {
-            if (newCard[1] < rightCard[1]) return true;
-            if (newCard[1] === rightCard[1]) {
-              return newCard[0] < rightCard[0]; // b < w
-            }
-            return false;
-          }
+          return position;
         }
 
         confirmCardPlacement() {
           if (this.drawnCard) {
+            // Mark communityIndex of placed card (blue highlight)
+            this.lastPlacedCommunityIndex = this.drawnCard.communityIndex;
             // Emit placement event with chosen position
-            console.log(
-              "Sending 'placeCard' with position, ",
-              this.cardPlacementPosition,
-            );
             this.socket.emit("placeCard", {
               card: this.drawnCard,
               position: this.cardPlacementPosition,
+              lpc: this.lastPlacedCommunityIndex,
             });
 
             // Clear drawnCard and hide placement UI
             this.drawnCard = null;
             this.hideCardPlacementUI();
+            this.updateUI();
           }
         }
 
@@ -1010,20 +1022,10 @@
         }
 
         resetGame() {
-          // Reset lobby
-          document.getElementById("sitDownBtn").disabled = false;
-          this.oppName = "";
-          this.gameState = null; // getGameState() in server.js
-          this.selectedCards = [];
-          // Reset setup
-          this.handSubmitted = false;
           // Reset local state and return to lobby screen
           this.selectedCards = [];
           this.drawnCard = null;
-          this.cardPlacementPosition = null;
-          this.selectedOpponentCardIndex = -1;
-          this.hasMadeFirstCorrectGuess = false;
-
+          this.selectedOpponentCard = -1;
           document.getElementById("gameOverlay").style.display = "none";
           document.getElementById("lobbyScreen").style.display = "flex";
           document.getElementById("gameTable").style.display = "none";
