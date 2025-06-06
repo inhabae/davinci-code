@@ -148,6 +148,8 @@
           this.cardPlacementPosition = null; // arrow index for placing a card into hand
           this.selectedOpponentCardIndex = -1; // index for guessing opponent card
           this.lastGuessMessage = ""; // for announcing player guess
+          this.lastRevealedHand = null;
+          this.lastRevealedIndex = null;
 
           this.hasMadeFirstCorrectGuess = false;
 
@@ -276,6 +278,47 @@
 
           this.socket.on("lastGuess", (data) => {
             this.lastGuessMessage = `Last guess: ${data.playerName} guessed ${data.guessedValue}`;
+          });
+
+          // RIGHT AFTER the existing this.socket.on("lastGuess", ...) add:
+          this.socket.on("selectOpponentCard", (data) => {
+            const remoteIdx = data.cardIndex;
+            // Clear any previous remote selection in our own hand (displayIdx = 0)
+            const myHandElem = document.getElementById("playerHand0");
+            myHandElem.querySelectorAll(".card").forEach((c) => {
+              c.classList.remove("selected");
+            });
+            // If remoteIdx is valid, add 'selected' to that card in our hand
+            if (remoteIdx != null && remoteIdx >= 0) {
+              const cards = myHandElem.querySelectorAll(".card");
+              if (cards[remoteIdx]) {
+                cards[remoteIdx].classList.add("selected");
+              }
+            }
+          });
+          this.socket.on("guessIndex", (data) => {
+            // 1) Remove any old highlight
+            document.querySelectorAll(".card.last-guessed").forEach((el) => {
+              el.classList.remove("last-guessed");
+            });
+
+            // 2) Figure out which hand to highlight
+            const isGuesser = data.playerId === this.playerId;
+            const guessedHandIdx = isGuesser ? 1 : 0;
+            const guessedCardIdx = data.cardIndex;
+
+            // Store for future renders:
+            this.lastGuessedHand = guessedHandIdx;
+            this.lastGuessedIndex = guessedCardIdx;
+
+            // 3) Immediately add class to the correct DOM element
+            const handElem = document.getElementById(
+              `playerHand${guessedHandIdx}`,
+            );
+            const cards = handElem.querySelectorAll(".card");
+            if (cards[guessedCardIdx]) {
+              cards[guessedCardIdx].classList.add("last-guessed");
+            }
           });
 
           // Fired when a winner is determined
@@ -640,35 +683,38 @@
 
         createCardElement(cardStr, displayIdx, cardIdx) {
           const cardElement = document.createElement("div");
-
           const color = cardStr[0]; // 'w' or 'b'
           const valueChar = cardStr[1]; // '0'-'9', 't', 'e', 'j'
           const revealedChar = cardStr[2]; // 't' or 'f'
 
-          // Base class for card color
+          // 1) Base class for color
           cardElement.className = `card ${color === "w" ? "white" : "black"}`;
 
-          // If this card was the last placed to hand, add 'newly-drawn' class
-          if (cardStr[2] != "f") {
-            if (displayIdx === 0) {
-              cardElement.classList.add("revealed-own");
-            } else {
-              cardElement.classList.add("revealed-opp");
-            }
+          // 2) Show revealed‐own / revealed‐opp or hidden‐own / hidden‐opp
+          if (revealedChar !== "f") {
+            displayIdx === 0
+              ? cardElement.classList.add("revealed-own")
+              : cardElement.classList.add("revealed-opp");
           } else {
-            if (displayIdx === 0) {
-              cardElement.classList.add("hidden-own");
-            } else {
-              cardElement.classList.add("hidden-opp");
-            }
+            displayIdx === 0
+              ? cardElement.classList.add("hidden-own")
+              : cardElement.classList.add("hidden-opp");
           }
+
+          // 3) Newly‐drawn flag (if cardStr[3] === 't')
           if (cardStr[3] === "t") {
             cardElement.classList.add("newly-drawn");
           }
-          if (cardStr[4] === "t") {
-            cardElement.classList.add("last-revealed");
+
+          // 4) Re‐apply “last‐guessed” if this matches stored state
+          if (
+            this.lastGuessedHand === displayIdx &&
+            this.lastGuessedIndex === cardIdx
+          ) {
+            cardElement.classList.add("last-guessed");
           }
 
+          // 5) Now set textContent or “?” depending on hidden vs. revealed
           const isOwn = displayIdx === 0;
           const isRevealed = revealedChar === "t";
           const isHidden = !isOwn && !isRevealed;
@@ -682,26 +728,25 @@
             cardElement.textContent = this.formatCardValue(valueChar);
           }
 
-          // Highlight if this was the last revealed card
-          if (cardStr[4] === "t") {
-            cardElement.classList.add("last-revealed");
-          }
-
-          // If it's an opponent card, during guess phase, and it's our turn → clickable
+          // 6) If this is an opponent’s card during guess‐phase and it’s your turn, make it clickable:
           if (
             displayIdx === 1 &&
-            cardStr[2] == "f" &&
+            revealedChar == "f" &&
             this.gameState.gameState === "playing" &&
             this.gameState.turnPhase === "guess" &&
             this.isMyTurn()
           ) {
             cardElement.style.cursor = "pointer";
             cardElement.addEventListener("click", () => {
+              // Toggle local selection
               this.selectedOpponentCardIndex = cardIdx;
               this.updateOpponentCardSelection();
+              // Inform server so opponent sees your selection
+              this.socket.emit("selectOpponentCard", { cardIndex: cardIdx });
             });
           }
 
+          // 7) Finally, return the fully‐initialized element
           return cardElement;
         }
 

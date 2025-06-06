@@ -145,11 +145,13 @@ body {
   font-weight: bold;
   color: #28a745;
   margin-bottom: 5px;
+  font-size: 1.5em;
 }
 
 .turn-phase {
   color: #666;
   font-style: italic;
+  font-size: 1.5em;
 }
 
 /* ===== COMMUNITY PILE ===== */
@@ -234,7 +236,7 @@ body {
   border-color: #007bff !important;
 }
 
-.card.last-revealed {
+.card.last-guessed {
   border-color: #dc3545 !important;
 }
 

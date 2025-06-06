@@ -532,7 +532,13 @@ io.on("connection", (socket) => {
       });
     }
   });
+  socket.on("selectOpponentCard", (data) => {
+    socket.broadcast.emit("selectOpponentCard", {
+      cardIndex: data.cardIndex,
+    });
+  });
 
+  // Modified “guessCard” handler with the guessIndex emit added:
   socket.on("guessCard", (data) => {
     console.log("[DEBUG] guessCard received");
     // 1) Find the name of the player who made the guess
@@ -541,15 +547,20 @@ io.on("connection", (socket) => {
     // 2) Take the raw guess string from the client
     const guessString = data.guessedValue;
     // 3) Broadcast it to everyone as "lastGuess"
-    console.log("LAST GUESS RAGH");
     io.emit("lastGuess", {
       playerName: playerName,
       guessedValue: guessString,
     });
+
+    // 3.1) ALSO emit the index of the card that was guessed
+    io.emit("guessIndex", {
+      playerId: socket.id,
+      cardIndex: data.cardIndex,
+    });
+
     // 4) Now process the guess as before
     const result = gameRoom.guessCard(data.cardIndex, data.guessedValue);
     if (result) {
-      console.log("[DEBUG] sending 'GuessResult' and 'gameStateUpdate'");
       io.emit("guessResult", {
         correct: result.correct,
         gameOver: result.gameOver,
