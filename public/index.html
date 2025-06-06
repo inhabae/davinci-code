@@ -148,8 +148,7 @@
           this.cardPlacementPosition = null; // arrow index for placing a card into hand
           this.selectedOpponentCardIndex = -1; // index for guessing opponent card
           this.lastGuessMessage = ""; // for announcing player guess
-          this.lastRevealedHand = null;
-          this.lastRevealedIndex = null;
+          this.lastGuessedCardId = null;
 
           this.hasMadeFirstCorrectGuess = false;
 
@@ -297,28 +296,17 @@
             }
           });
           this.socket.on("guessIndex", (data) => {
-            // 1) Remove any old highlight
+            // 1) Clear any old highlight
             document.querySelectorAll(".card.last-guessed").forEach((el) => {
               el.classList.remove("last-guessed");
             });
 
-            // 2) Figure out which hand to highlight
-            const isGuesser = data.playerId === this.playerId;
-            const guessedHandIdx = isGuesser ? 1 : 0;
-            const guessedCardIdx = data.cardIndex;
+            // 2) Store the new card‐ID letter
+            console.log("GEBUDDDDD", this.lastGuessedCardId, data.cardId);
+            this.lastGuessedCardId = data.cardId;
 
-            // Store for future renders:
-            this.lastGuessedHand = guessedHandIdx;
-            this.lastGuessedIndex = guessedCardIdx;
-
-            // 3) Immediately add class to the correct DOM element
-            const handElem = document.getElementById(
-              `playerHand${guessedHandIdx}`,
-            );
-            const cards = handElem.querySelectorAll(".card");
-            if (cards[guessedCardIdx]) {
-              cards[guessedCardIdx].classList.add("last-guessed");
-            }
+            // 3) Re-render so createCardElement(...) applies .last-guessed by ID
+            this.updateUI();
           });
 
           // Fired when a winner is determined
@@ -702,15 +690,15 @@
           }
 
           // 3) Newly‐drawn flag (if cardStr[3] === 't')
-          if (cardStr[3] === "t") {
+          if (cardStr[3] == "t") {
             cardElement.classList.add("newly-drawn");
           }
 
-          // 4) Re‐apply “last‐guessed” if this matches stored state
-          if (
-            this.lastGuessedHand === displayIdx &&
-            this.lastGuessedIndex === cardIdx
-          ) {
+          // 4) Re‐apply “last‐guessed” by comparing the 5th char (unique ID)
+          const cardId = cardStr[4];
+
+          console.log("[DEBUGGGGG] ", cardId, this.lastGuessedCardId);
+          if (cardId == this.lastGuessedCardId) {
             cardElement.classList.add("last-guessed");
           }
 
@@ -1060,27 +1048,30 @@
         }
 
         resetGame() {
-          // Reset lobby
+          // Re‐enable “Sit Down” button and clear lobby‐related state
           document.getElementById("sitDownBtn").disabled = false;
           this.oppName = "";
-          this.gameState = null; // getGameState() in server.js
+          this.gameState = null;
+
+          // Clear any selection/hand state from the previous game
           this.selectedCards = [];
-          // Reset setup
           this.handSubmitted = false;
-          // Reset local state and return to lobby screen
-          this.selectedCards = [];
           this.drawnCard = null;
           this.cardPlacementPosition = null;
           this.selectedOpponentCardIndex = -1;
           this.hasMadeFirstCorrectGuess = false;
-
           this.lastGuessMessage = "";
-          this.lastRevealedHand = null;
-          this.lastRevealedIndex = null;
+          this.lastGuessedCardId = null;
 
+          // Remove all card elements from the DOM so we start fresh next round
+          document.getElementById("communityPile").innerHTML = "";
+          document.getElementById("playerHand0").innerHTML = "";
+          document.getElementById("playerHand1").innerHTML = "";
+
+          // Hide the game‐table UI and overlay, show the lobby screen
           document.getElementById("gameOverlay").style.display = "none";
-          document.getElementById("lobbyScreen").style.display = "flex";
           document.getElementById("gameTable").style.display = "none";
+          document.getElementById("lobbyScreen").style.display = "flex";
         }
       }
 

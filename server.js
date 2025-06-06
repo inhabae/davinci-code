@@ -62,32 +62,32 @@ class GameRoom {
   initializeGame() {
     this.gameState = "setup";
     this.whitePile = [
-      "w0fff",
-      "w1fff",
-      "w2fff",
-      "w3fff",
-      "w4fff",
-      "w5fff",
-      "w6fff",
-      "w7fff",
-      "w8fff",
-      "w9fff",
-      "wtfff",
-      "wvfff",
+      "w0ff",
+      "w1ff",
+      "w2ff",
+      "w3ff",
+      "w4ff",
+      "w5ff",
+      "w6ff",
+      "w7ff",
+      "w8ff",
+      "w9ff",
+      "wtff",
+      "wvff",
     ];
     this.blackPile = [
-      "b0fff",
-      "b1fff",
-      "b2fff",
-      "b3fff",
-      "b4fff",
-      "b5fff",
-      "b6fff",
-      "b7fff",
-      "b8fff",
-      "b9fff",
-      "btfff",
-      "bvfff",
+      "b0ff",
+      "b1ff",
+      "b2ff",
+      "b3ff",
+      "b4ff",
+      "b5ff",
+      "b6ff",
+      "b7ff",
+      "b8ff",
+      "b9ff",
+      "btff",
+      "bvff",
     ];
 
     const randomIndex = Math.floor(Math.random() * 2); // 0 or 1
@@ -111,10 +111,22 @@ class GameRoom {
     return true;
   }
 
+  // Deal 4 hands to each player and shuffle joker into the pile
   dealInitialHands() {
     this.shuffleArray(this.whitePile);
     this.shuffleArray(this.blackPile);
 
+    console.log("LOGLOG", this.whitePile, this.blackPile);
+    const allLetters = "abcdefghijklmnopqrstuvwxyz".split("");
+
+    for (let i = 0; i < 12; i++) {
+      this.whitePile[i] = this.whitePile[i] + allLetters[i];
+    }
+    for (let i = 12; i < 24; i++) {
+      this.blackPile[i - 12] = this.blackPile[i - 12] + allLetters[i];
+    }
+
+    console.log("LOGLOG", this.whitePile, this.blackPile);
     // Deal cards to each player
     for (let playerIndex = 0; playerIndex < 2; playerIndex++) {
       const selectedColors = this.selectedColors[playerIndex];
@@ -127,14 +139,21 @@ class GameRoom {
           hand.push(this.blackPile.pop());
         }
       }
-
-      console.log("[DEBUG] hand is ", hand);
-
       this.playerHands[playerIndex] = this.sortInitialHand(hand);
       console.log(
-        "[DEBUG] dealInitialHands(): playerHands is ",
+        "[DEBUG] dealInitialHands(): ",
         this.playerHands,
+        this.communityPile,
       );
+    }
+
+    // Add a joker and shuffle
+    this.whitePile.push("wjff" + allLetters[24]);
+    this.blackPile.push("bjff" + allLetters[25]);
+    this.communityPile = [...this.whitePile, ...this.blackPile];
+
+    for (let i = 0; i < 100; i++) {
+      this.shuffleArray(this.communityPile);
     }
   }
 
@@ -184,8 +203,6 @@ class GameRoom {
   }
 
   guessCard(opponentCardIndex, value) {
-    this.resetLastRevealedCard();
-
     // joker is already "j" by client's submitGuess()
     let guessedValue = value;
     if (value == 10) {
@@ -213,7 +230,9 @@ class GameRoom {
     if (isCorrect) {
       // Reveal the guessed card
       opponentHand[opponentCardIndex] =
-        opponentHand[opponentCardIndex].slice(0, 2) + "tft";
+        opponentHand[opponentCardIndex].slice(0, 2) +
+        "tf" +
+        opponentHand[opponentCardIndex].slice(4);
 
       // Check if opponent lost (all cards revealed)
       const allRevealed = opponentHand.every((card) => card[2] === "t");
@@ -239,7 +258,10 @@ class GameRoom {
       // Dealing with losing newly drawn card
       for (let i = 0; i < playerHand.length; i++) {
         if (playerHand[i][3] === "t") {
-          playerHand[i] = playerHand[i].slice(0, 2) + "tft";
+          playerHand[i] =
+            playerHand[i].slice(0, 2) +
+            "tf" +
+            playerHand[playerIndex].slice(0, 2);
           break;
         }
       }
@@ -275,22 +297,6 @@ class GameRoom {
           correct: false,
           gameOver: false,
         };
-      }
-    }
-  }
-
-  resetLastRevealedCard() {
-    console.log("[DEBUG] Last revealed card reset");
-    for (let playerIndex = 0; playerIndex <= 1; playerIndex++) {
-      const hand = this.playerHands[playerIndex];
-      for (let i = 0; i < hand.length; i++) {
-        const card = hand[i];
-        if (card.length === 5) {
-          // Set 5th character to 'f'
-          hand[i] = card.slice(0, 4) + "f" + card.slice(5);
-        } else {
-          console.log("[ERROR] Invalid card length ", card.length);
-        }
       }
     }
   }
@@ -443,16 +449,6 @@ io.on("connection", (socket) => {
       ) {
         gameRoom.dealInitialHands();
 
-        // Add a joker and shuffle
-        gameRoom.whitePile.push("wjfff");
-        gameRoom.blackPile.push("bjfff");
-        gameRoom.communityPile = [...gameRoom.whitePile, ...gameRoom.blackPile];
-        gameRoom.shuffleArray(gameRoom.communityPile);
-        gameRoom.shuffleArray(gameRoom.communityPile);
-        gameRoom.shuffleArray(gameRoom.communityPile);
-        gameRoom.shuffleArray(gameRoom.communityPile);
-        gameRoom.shuffleArray(gameRoom.communityPile);
-
         gameRoom.gameState = "playing";
         gameRoom.turnPhase = "draw";
 
@@ -537,10 +533,14 @@ io.on("connection", (socket) => {
       guessedValue: guessString,
     });
 
-    // 3.1) ALSO emit the index of the card that was guessed
+    const cardStr = gameRoom.playerHands[1 - playerIndex];
+    const cardId = cardStr[data.cardIndex][4];
+
+    console.log("GEBUD ", cardStr, cardId);
+    // 3.1) ALSO emit the unique id of the card that was guessed
     io.emit("guessIndex", {
       playerId: socket.id,
-      cardIndex: data.cardIndex,
+      cardId: cardId,
     });
 
     // 4) Now process the guess as before
@@ -551,6 +551,17 @@ io.on("connection", (socket) => {
         gameOver: result.gameOver,
         winner: result.winner,
       });
+
+      console.log(
+        "[DEBUG] YAYAY updateGameState() with this state: ",
+        gameRoom.gameState,
+        gameRoom.currentPlayerId,
+        gameRoom.turnPhase,
+        gameRoom.communityPile,
+        gameRoom.playerHands[0],
+        gameRoom.playerHands[1 - 0],
+      );
+
       gameRoom.players.forEach((player) => {
         const playerId = player.id;
         player.socket.emit(
@@ -597,31 +608,26 @@ io.on("connection", (socket) => {
   // New game
   socket.on("newGame", () => {
     gameRoom.resetGame();
-    gameRoom.players.forEach((player) => {
-      const playerId = player.id;
-      player.socket.emit("gameStateUpdate", gameRoom.updateGameState(playerId));
-    });
+    io.emit("lobbyStateUpdate", gameRoom.getLobbyState());
     io.emit("gameReset");
   });
 
-  // Disconnect
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
-    const playerId = gameRoom.players.findIndex((p) => p.id === socket.id);
+    // 1) Remove the socket from the player list immediately
+    const wasInGame = gameRoom.players.some((p) => p.id === socket.id);
+    gameRoom.removePlayer(socket.id);
 
-    if (playerId !== -1) {
-      console.log("Disconnected player was in the game — resetting.");
-      gameRoom.resetGame(); // custom method to reset game state
-      gameRoom.players.forEach((player) => {
-        const playerId = player.id;
-        player.socket.emit(
-          "gameStateUpdate",
-          gameRoom.updateGameState(playerId),
-        );
-      });
+    if (wasInGame) {
+      // 2) Now reset the game state (hands, piles, turnPhase, etc.)
+      gameRoom.resetGame();
+
+      // 3) Broadcast new lobby state to the remaining client(s)
+      io.emit("lobbyStateUpdate", gameRoom.getLobbyState());
+
+      // 4) Then tell everyone “gameReset” so that client.resetGame() runs
       io.emit("gameReset");
     }
-    gameRoom.removePlayer(socket.id);
   });
 });
 
