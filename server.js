@@ -1,3 +1,5 @@
+// TODO: multiple rooms
+
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
@@ -141,22 +143,6 @@ class GameRoom {
       const j = Math.floor(Math.random() * (i + 1));
       [array[i], array[j]] = [array[j], array[i]];
     }
-  }
-
-  getAvailableValues(color) {
-    const allValues = Array.from({ length: 12 }, (_, i) => i); // 0-11
-    const usedValues = [];
-
-    // Check what values are already used
-    this.playerHands.forEach((hand) => {
-      hand.forEach((card) => {
-        if (card.color === color && card.value !== "joker") {
-          usedValues.push(card.value);
-        }
-      });
-    });
-
-    return allValues.filter((val) => !usedValues.includes(val));
   }
 
   // Mark a drawnCard with "d" and return a drawnCard
@@ -389,7 +375,6 @@ class GameRoom {
     this.revealedCards = [new Set(), new Set()];
     this.selectedColors = [[], []];
     this.turnPhase = null;
-    this.players = [];
   }
 }
 

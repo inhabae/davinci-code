@@ -1074,6 +1074,10 @@
           this.selectedOpponentCardIndex = -1;
           this.hasMadeFirstCorrectGuess = false;
 
+          this.lastGuessMessage = "";
+          this.lastRevealedHand = null;
+          this.lastRevealedIndex = null;
+
           document.getElementById("gameOverlay").style.display = "none";
           document.getElementById("lobbyScreen").style.display = "flex";
           document.getElementById("gameTable").style.display = "none";
