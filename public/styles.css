@@ -22,7 +22,7 @@ body {
 
 .btn {
   background: #667eea;
-  color:4;
+  color: 4;
   border: none;
   padding: 15px 30px;
   border-radius: 8px;
@@ -56,7 +56,7 @@ body {
 /* ===== MAIN CONTAINER ===== */
 .game-container {
   width: 100%;
-  min-width: 1200px;
+  min-width: 1600px;
   max-width: 2000px;
   height: 800px;
   background: white;
@@ -119,8 +119,16 @@ body {
   height: 100%;
   position: relative;
   background-image:
-    radial-gradient(circle at 20% 80%, rgba(120, 200, 120, 0.3) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(120, 200, 120, 0.3) 0%, transparent 50%);
+    radial-gradient(
+      circle at 20% 80%,
+      rgba(120, 200, 120, 0.3) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      circle at 80% 20%,
+      rgba(120, 200, 120, 0.3) 0%,
+      transparent 50%
+    );
 }
 
 .game-info {
@@ -252,6 +260,9 @@ body {
 }
 
 .player-hand.player-1 {
+  display: flex;
+  flex-direction: row-reverse;
+  /* gap: 8px;                preserve existing gap */
   top: 50px;
   left: 50%;
   transform: translateX(-50%);

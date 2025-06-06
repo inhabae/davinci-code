@@ -533,9 +533,20 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Guess card
   socket.on("guessCard", (data) => {
     console.log("[DEBUG] guessCard received");
+    // 1) Find the name of the player who made the guess
+    const playerIndex = gameRoom.players.findIndex((p) => p.id === socket.id);
+    const playerName = gameRoom.players[playerIndex].name;
+    // 2) Take the raw guess string from the client
+    const guessString = data.guessedValue;
+    // 3) Broadcast it to everyone as "lastGuess"
+    console.log("LAST GUESS RAGH");
+    io.emit("lastGuess", {
+      playerName: playerName,
+      guessedValue: guessString,
+    });
+    // 4) Now process the guess as before
     const result = gameRoom.guessCard(data.cardIndex, data.guessedValue);
     if (result) {
       console.log("[DEBUG] sending 'GuessResult' and 'gameStateUpdate'");

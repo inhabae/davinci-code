@@ -147,6 +147,7 @@
           this.drawnCard = null; // a string of drawnCard e.g. w1fff
           this.cardPlacementPosition = null; // arrow index for placing a card into hand
           this.selectedOpponentCardIndex = -1; // index for guessing opponent card
+          this.lastGuessMessage = ""; // for announcing player guess
 
           this.hasMadeFirstCorrectGuess = false;
 
@@ -271,6 +272,10 @@
 
             // Re-render to highlight only the last revealed card in red
             this.updateUI();
+          });
+
+          this.socket.on("lastGuess", (data) => {
+            this.lastGuessMessage = `Last guess: ${data.playerName} guessed ${data.guessedValue}`;
           });
 
           // Fired when a winner is determined
@@ -750,9 +755,9 @@
             place: "Place the drawn card",
             guess: "Guess opponent's card",
           };
-          turnPhaseElement.textContent = this.isMyTurn()
-            ? phaseText[this.gameState.turnPhase]
-            : "";
+          turnPhaseElement.innerHTML =
+            (this.isMyTurn() ? phaseText[this.gameState.turnPhase] : ``) +
+            (this.lastGuessMessage ? `<br><br>${this.lastGuessMessage}` : "");
         }
 
         updateGameControls() {
