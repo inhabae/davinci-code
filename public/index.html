@@ -510,6 +510,7 @@
             this.gameState.turnPhase,
           );
           // In play phase: update pile, hands, and info texts
+          // this.showGameTable(); 
           this.updateGameInfo();
           this.updateGameControls();
           this.renderCommunityPile();
@@ -654,6 +655,9 @@
             cards.forEach((card) => card.remove());
 
             // Set label (use name if available, otherwise fallback)
+
+
+            console.log(label, label.textContent, playerLabels);
             label.textContent = playerLabels[displayIdx];
 
             // Render each card in the hand
@@ -1054,6 +1058,7 @@
           this.gameState = null;
           this.playerId = null;
 
+          
           // Clear any selection/hand state from the previous game
           this.selectedCards = [];
           this.handSubmitted = false;
@@ -1064,10 +1069,18 @@
           this.lastGuessMessage = "";
           this.lastGuessedCardId = null;
 
+          ["playerHand0", "playerHand1"].forEach((handId) => {
+            const handElement = document.getElementById(handId);
+            // Remove only card elements, preserve the player-label
+            const cards = handElement.querySelectorAll(".card");
+            cards.forEach((card) => card.remove());
+          });
+
           // Remove all card elements from the DOM so we start fresh next round
           document.getElementById("communityPile").innerHTML = "";
-          document.getElementById("playerHand0").innerHTML = "";
-          document.getElementById("playerHand1").innerHTML = "";
+
+          // Remove all card elements from the DOM so we start fresh next round
+          document.getElementById("communityPile").innerHTML = "";
 
           // Hide the game‐table UI and overlay, show the lobby screen
           document.getElementById("gameOverlay").style.display = "none";

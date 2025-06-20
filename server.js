@@ -429,6 +429,10 @@ io.on("connection", (socket) => {
         );
       });
 
+
+      console.log("[DEBUG] At start of game: ", gameRoom);
+
+
       io.emit("gameStarted");
     } else {
       console.log(
