@@ -374,11 +374,13 @@ class GameRoom {
   }
 
   resetGame() {
+    this.players = [];
     this.gameState = "lobby";
     this.currentPlayerId = null;
     this.communityPile = [];
     this.playerHands = [[], []];
-    this.revealedCards = [new Set(), new Set()];
+    this.whitePile = [];
+    this.blackPile = [];
     this.selectedColors = [[], []];
     this.turnPhase = null;
   }
